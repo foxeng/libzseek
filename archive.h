@@ -1,0 +1,188 @@
+/**
+ * @defgroup archive_file Efficient compressed file abstraction
+ *
+ * Efficient sequential write and random access read API using ZSTD.
+ *
+ * The file must be written out sequentially in one go,
+ * but can be opened for random reads using offsets and sizes
+ * of decompressed data, as if the file was not compressed.
+ *
+ * Internally, an index from uncompressed to compressed file offsets is used
+ * to map decompressed offsets to the enclosing compressed block.
+ * This index is appended to the file after closing the write handle,
+ * and consulted for serving random access reads.
+ *
+ * The block sizes are tuned to achieve high throughput write without
+ * prohibitive read amplification.
+ *
+ * Additional considerations:
+ *
+ * An initial segment of the file is uncompressed,
+ * and can be used to store metadata by overwriting in-place by the caller
+ * after the compression is concluded.
+ * This is represented by the start_offset parameter.
+ * Separately, we are looking into changing the potential users to append
+ * their metadata to the end of the file,
+ * so that we can eliminate this feature.
+ *
+ * Should have a pluggable downstream writer and reader,
+ * instead of doing directly IO on the file, because we
+ * have a custom Linux specific high performance one that looks like
+ * this:
+ *  bool buffered_write(const void *data, size_t size, *user_data)
+ *  bool buffered_read(void *data, size_t size, *user_data)
+ *
+ * @todo Consider a better name, tried to avoid the algo in the name
+ *
+ * @{
+ */
+
+#include <stddef.h>
+#include <stdbool.h>
+#include <sys/types.h>
+
+/**
+ * Error buffer size
+ */
+#define NIO_ARCHIVE_ERRBUF_SIZE 80
+
+/**
+ * Pluggable write handler
+ *
+ * @param data
+ * @param size
+ * @param user_data
+ * @todo add a setter for this, or pass in constructor
+ */
+// typedef bool (*nio_archive_write_t)(const void *data, size_t size, *user_data);
+
+/**
+ * Pluggable read handler
+ *
+ * @param[out] data
+ * @param size
+ * @param offset
+ * @param user_data
+ * @todo add a setter for this, or pass in constructor
+ */
+// typedef ssize_t (*nio_archive_pread_t)(void *data, size_t size, size_t offset,
+//     *user_data);
+
+/**
+ * Handle to a compressed file for sequential writes
+ */
+typedef struct nio_archive_writer nio_archive_writer_t;
+
+/**
+ * Handle to a compressed file for random access reads
+ */
+typedef struct nio_archive_reader nio_archive_reader_t;
+
+/**
+ * Creates a compressed file for sequential writes
+ *
+ * @param filename
+ *	Name of the file to create. The file must not exist
+ * @param nb_workers
+ *	Number of worker threads to use for compression
+ * @param min_frame_size
+ *	Minimum (uncompressed) frame size
+ * @param[out] errbuf
+ *
+ * @return
+ *	Handle to perform writes or @a NULL on error
+ */
+nio_archive_writer_t *nio_archive_writer_open(const char *filename,
+    int nb_workers, size_t min_frame_size,
+    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+/**
+ * Closes a compressed file handle for writes
+ *
+ * @param writer
+ *	Compressed file handle to close
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ * @return
+ *	True on success, false on error. If not @a NULL, @p errbuf is
+ *	populated with an error message. In either case,
+ *	the @p reader is de-allocated and no longer usable.
+ */
+bool nio_archive_writer_close(nio_archive_writer_t *writer,
+    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+
+/**
+ * Appends data to a compressed file
+ *
+ * The data chunks passed can be small, they will be coalesced
+ * internally for efficient compression and IO.
+ *
+ * This is safe to call concurrently. It will not, in general, return
+ * immediately.
+ *
+ * @param writer
+ *	Compressed file write handle
+ * @param buf
+ *	Pointer to data to write
+ * @param len
+ *	Length of data pointed to by @p buf
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @return
+ *	True on success, false on error. If not @a NULL, @p errbuf is
+ *	populated with an error message.
+ */
+bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
+    size_t len, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+/**
+ * @param filename
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ * @return
+ *	True on success, false on error. If not @a NULL, @p errbuf is
+ *	populated with an error message.
+ */
+nio_archive_reader_t *nio_archive_reader_open(const char *filename,
+    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+/**
+ * Closes a compressed file handle for reads
+ *
+ * @param reader
+ *	The compressed file reader to close
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ * @return
+ *	True on success, false on error. If not @a NULL, @p errbuf is
+ *	populated with an error message. In either case,
+ *	the @p reader is de-allocated and no longer usable.
+ */
+bool nio_archive_reader_close(nio_archive_reader_t *reader,
+    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+/**
+ * Reads data from an arbitrary offset of a compressed file
+ *
+ * @param reader
+ *	Compressed file reader
+ * @param[out] buf
+ *	Buffer to store decompressed data
+ * @param count
+ *	Size of decompressed data to read
+ * @param offset
+ *	Offset in the decompressed data to read data from
+ *
+ * @param[out] errbuf
+ * @return
+ *	Number of bytes read, -1 on error. If not @a NULL, @p errbuf is
+ *	populated with an error message.
+ */
+ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
+    size_t offset, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+
+/**
+ * @}
+ */
