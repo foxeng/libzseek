@@ -8,7 +8,7 @@
 
 #include <zstd.h>
 
-#include "archive.h"
+#include "zseek.h"
 #include "seek_table.h"
 
 #define COMPRESSION_LEVEL ZSTD_CLEVEL_DEFAULT
@@ -16,7 +16,7 @@
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-struct nio_archive_writer {
+struct zseek_writer {
     FILE *fout;
     ZSTD_CCtx *cctx;
     pthread_mutex_t lock;
@@ -27,13 +27,13 @@ struct nio_archive_writer {
     ZSTD_frameLog *fl;
 };
 
-nio_archive_writer_t *nio_archive_writer_open(const char *filename,
-    int nb_workers, size_t min_frame_size, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
+    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    nio_archive_writer_t *writer = malloc(sizeof(nio_archive_writer_t));
+    zseek_writer_t *writer = malloc(sizeof(zseek_writer_t));
     if (!writer) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_writer_open: allocate writer");
+        perror("zseek_writer_open: allocate writer");
         goto fail;
     }
     memset(writer, 0, sizeof(*writer));
@@ -41,14 +41,14 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
     ZSTD_CCtx *cctx = ZSTD_createCCtx();
     if (!cctx) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_writer_open: create context");
+        perror("zseek_writer_open: create context");
         goto fail_w_writer;
     }
     size_t r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel,
         COMPRESSION_LEVEL);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_open: set compression level: %s\n",
+        fprintf(stderr, "zseek_writer_open: set compression level: %s\n",
             ZSTD_getErrorName(r));
         goto fail_w_cctx;
     }
@@ -56,14 +56,14 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
     r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, COMPRESSION_STRATEGY);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_open: set strategy: %s\n",
+        fprintf(stderr, "zseek_writer_open: set strategy: %s\n",
             ZSTD_getErrorName(r));
         goto fail_w_cctx;
     }
     r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nb_workers);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_open: set nb of workers: %s\n",
+        fprintf(stderr, "zseek_writer_open: set nb of workers: %s\n",
             ZSTD_getErrorName(r));
         goto fail_w_cctx;
     }
@@ -73,7 +73,7 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
     int pr = pthread_mutex_init(&writer->lock, NULL);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_open: initialize mutex: %s\n",
+        fprintf(stderr, "zseek_writer_open: initialize mutex: %s\n",
             strerror(pr));
         goto fail_w_cctx;
     }
@@ -81,7 +81,7 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
     ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(0);
     if (!fl) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_open: create frame log failed\n");
+        fprintf(stderr, "zseek_writer_open: create frame log failed\n");
         goto fail_w_lock;
     }
     writer->fl = fl;
@@ -89,7 +89,7 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
     FILE *fout = fopen(filename, "wb");
     if (!fout) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_writer_open: open file");
+        perror("zseek_writer_open: open file");
         goto fail_w_framelog;
     }
     writer->fout = fout;
@@ -112,7 +112,7 @@ fail:
  * Flush, close and write current frame. This will block. Should be called with
  * the writer lock held.
  */
-static bool end_frame(nio_archive_writer_t *writer)
+static bool end_frame(zseek_writer_t *writer)
 {
     // TODO: Communicate error info?
 
@@ -170,14 +170,13 @@ fail:
     return false;
 }
 
-bool nio_archive_writer_close(nio_archive_writer_t *writer,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (writer->frame_uc > 0) {
         // End final frame
         if (!end_frame(writer)) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_writer_close: end frame failed");
+            fprintf(stderr, "zseek_writer_close: end frame failed");
             return false;   // TODO: Continue with the cleanup?
         }
     }
@@ -186,7 +185,7 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
     void *buf = malloc(buf_len);
     if (!buf) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_writer_close: allocate output buffer");
+        perror("zseek_writer_close: allocate output buffer");
         return false;
     }
 
@@ -198,7 +197,7 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
         rem = ZSTD_seekable_writeSeekTable(writer->fl, &buffout);
         if (ZSTD_isError(rem)) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_writer_close: write seek table: %s\n",
+            fprintf(stderr, "zseek_writer_close: write seek table: %s\n",
                 ZSTD_getErrorName(rem));
             return false;
         }
@@ -206,7 +205,7 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
         size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
         if (written < buffout.pos) {
             // TODO: Return in errbuf instead.
-            perror("nio_archive_writer_close: write to file");
+            perror("zseek_writer_close: write to file");
             return false;
         }
     } while (rem > 0);
@@ -214,14 +213,14 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
 
     if (fclose(writer->fout) == EOF) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_writer_close: close file");
+        perror("zseek_writer_close: close file");
         return false;
     }
 
     size_t r = ZSTD_seekable_freeFrameLog(writer->fl);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_close: free frame log: %s\n",
+        fprintf(stderr, "zseek_writer_close: free frame log: %s\n",
             ZSTD_getErrorName(r));
         return false;
     }
@@ -229,7 +228,7 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
     int pr = pthread_mutex_destroy(&writer->lock);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_close: destroy mutex: %s\n",
+        fprintf(stderr, "zseek_writer_close: destroy mutex: %s\n",
             strerror(pr));
         return false;
     }
@@ -237,7 +236,7 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
     r = ZSTD_freeCCtx(writer->cctx);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_writer_close: free context: %s\n",
+        fprintf(stderr, "zseek_writer_close: free context: %s\n",
             ZSTD_getErrorName(r));
         return false;
     }
@@ -247,13 +246,12 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
     return true;
 }
 
-bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
-    size_t len, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     int pr = pthread_mutex_lock(&writer->lock);
     if (pr) {
-        fprintf(stderr, "nio_archive_write: lock mutex: %s\n",
-            strerror(pr));
+        fprintf(stderr, "zseek_write: lock mutex: %s\n", strerror(pr));
         goto fail;
     }
 
@@ -263,7 +261,7 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
         // previous calls.
         if (!end_frame(writer)) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_write: end frame failed");
+            fprintf(stderr, "zseek_write: end frame failed");
             goto fail_w_lock;
         }
     }
@@ -273,7 +271,7 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
     void *bout = malloc(bout_len);
     if (!bout) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_write: allocate output buffer");
+        perror("zseek_write: allocate output buffer");
         goto fail_w_lock;
     }
 
@@ -286,7 +284,7 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
             ZSTD_e_continue);
         if (ZSTD_isError(rem)) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_write: compress: %s\n",
+            fprintf(stderr, "zseek_write: compress: %s\n",
                 ZSTD_getErrorName(rem));
             goto fail_w_bout;
         }
@@ -298,7 +296,7 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
         size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
         if (written < buffout.pos) {
             // TODO: Return in errbuf instead.
-            perror("nio_archive_write: write to file");
+            perror("zseek_write: write to file");
             goto fail_w_bout;
         }
     } while (buffin.pos < buffin.size);
@@ -310,8 +308,7 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
 
     pr = pthread_mutex_unlock(&writer->lock);
     if (pr) {
-        fprintf(stderr, "nio_archive_write: unlock mutex: %s\n",
-            strerror(pr));
+        fprintf(stderr, "zseek_write: unlock mutex: %s\n", strerror(pr));
         goto fail;
     }
 

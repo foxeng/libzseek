@@ -2,9 +2,9 @@ ZSTD_VERSION = v1.4.9
 LIBZSTD_DIR = zstd/lib
 LIBZSTD_FILE = libzstd.a
 LIBZSTD = $(LIBZSTD_DIR)/$(LIBZSTD_FILE)
-LIBNIOARCHIVE_DIR = ..
-LIBNIOARCHIVE_FILE = libnioarchive.a
-LIBNIOARCHIVE = $(LIBNIOARCHIVE_DIR)/$(LIBNIOARCHIVE_FILE)
+LIBZSEEK_DIR = ..
+LIBZSEEK_FILE = libzseek.a
+LIBZSEEK = $(LIBZSEEK_DIR)/$(LIBZSEEK_FILE)
 
 CFLAGS += -Wall -std=c99 -pthread -O3 -g
 LDFLAGS += -pthread -L$(LIBZSTD_DIR)
@@ -21,9 +21,9 @@ zstd:
 $(LIBZSTD): zstd
 	$(MAKE) -C $(LIBZSTD_DIR) lib-mt
 
-test: $(LIBZSTD) $(LIBNIOARCHIVE) test.o
+test: $(LIBZSTD) $(LIBZSEEK) test.o
 
-benchmark: $(LIBZSTD) $(LIBNIOARCHIVE) benchmark.o
+benchmark: $(LIBZSTD) $(LIBZSEEK) benchmark.o
 
 
 clean:

@@ -5,7 +5,7 @@
 #include <errno.h>      // perror
 #include <string.h>     // strcpy, strcat, memcmp
 
-#include "../archive.h"
+#include "../zseek.h"
 
 #define BUF_SIZE (1 << 12)  // 4 KiB
 #define NB_WORKERS 4
@@ -24,10 +24,10 @@ bool decompress(char *ufilename, char *cfilename)
         return false;
     }
 
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE];
-    nio_archive_reader_t *reader = nio_archive_reader_open(cfilename, errbuf);
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_reader_t *reader = zseek_reader_open(cfilename, errbuf);
     if (!reader) {
-        fprintf(stderr, "decompress: nio_archive_reader_open failed\n");
+        fprintf(stderr, "decompress: zseek_reader_open failed\n");
         return false;
     }
 
@@ -54,10 +54,10 @@ bool decompress(char *ufilename, char *cfilename)
 
         size_t to_read = uread;
         while (to_read > 0) {
-            ssize_t dread = nio_archive_pread(reader, dbuf + (offset % buf_len),
+            ssize_t dread = zseek_pread(reader, dbuf + (offset % buf_len),
                 to_read, offset, errbuf);
             if (dread == -1) {
-                fprintf(stderr, "decompress: nio_archive_pread failed\n");
+                fprintf(stderr, "decompress: zseek_pread failed\n");
                 return false;
             }
             to_read -= dread;
@@ -100,11 +100,11 @@ bool compress(char *ufilename, char *cfilename)
         return false;
     }
 
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE];
-    nio_archive_writer_t *writer = nio_archive_writer_open(cfilename,
-        NB_WORKERS, MIN_FRAME_SIZE, errbuf);
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_writer_t *writer = zseek_writer_open(cfilename, NB_WORKERS,
+        MIN_FRAME_SIZE, errbuf);
     if (!writer) {
-        fprintf(stderr, "compress: nio_archive_writer_open failed\n");
+        fprintf(stderr, "compress: zseek_writer_open failed\n");
         return false;
     }
 
@@ -123,8 +123,8 @@ bool compress(char *ufilename, char *cfilename)
             return false;
         }
 
-        if (!nio_archive_write(writer, buf, uread, errbuf)) {
-            fprintf(stderr, "compress: nio_archive_write failed\n");
+        if (!zseek_write(writer, buf, uread, errbuf)) {
+            fprintf(stderr, "compress: zseek_write failed\n");
             return false;
         }
     } while (!feof(fin));
@@ -132,8 +132,8 @@ bool compress(char *ufilename, char *cfilename)
 
     free(buf);
 
-    if (!nio_archive_writer_close(writer, errbuf)) {
-        fprintf(stderr, "compress: nio_archive_writer_close failed\n");
+    if (!zseek_writer_close(writer, errbuf)) {
+        fprintf(stderr, "compress: zseek_writer_close failed\n");
         return false;
     }
 

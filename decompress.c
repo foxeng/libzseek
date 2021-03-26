@@ -8,34 +8,34 @@
 
 #include <zstd.h>
 
-#include "archive.h"
+#include "zseek.h"
 #include "seek_table.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-struct nio_archive_frame_cache {
+struct zseek_frame_cache {
     void *data;
     size_t frame_idx;
     size_t frame_len;
     size_t capacity;
 };
 
-struct nio_archive_reader {
+struct zseek_reader {
     FILE *fin;
     ZSTD_DCtx *dctx;    // TODO: If there's contention, use one dctx per read().
     pthread_rwlock_t lock;
 
     ZSTD_seekTable *st;
-    struct nio_archive_frame_cache cache;   // TODO: Parameterize # of cached frames.
+    struct zseek_frame_cache cache;   // TODO: Parameterize # of cached frames.
 };
 
-nio_archive_reader_t *nio_archive_reader_open(const char *filename,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+zseek_reader_t *zseek_reader_open(const char *filename,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    nio_archive_reader_t *reader = malloc(sizeof(nio_archive_reader_t));
+    zseek_reader_t *reader = malloc(sizeof(zseek_reader_t));
     if (!reader) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_reader_open: allocate reader");
+        perror("zseek_reader_open: allocate reader");
         goto fail;
     }
     memset(reader, 0, sizeof(*reader));
@@ -43,7 +43,7 @@ nio_archive_reader_t *nio_archive_reader_open(const char *filename,
     ZSTD_DCtx *dctx = ZSTD_createDCtx();
     if (!dctx) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_reader_open: create context");
+        perror("zseek_reader_open: create context");
         goto fail_w_reader;
     }
     reader->dctx = dctx;
@@ -51,14 +51,14 @@ nio_archive_reader_t *nio_archive_reader_open(const char *filename,
     int pr = pthread_rwlock_init(&reader->lock, NULL);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_reader_open: initialize mutex: %s\n",
+        fprintf(stderr, "zseek_reader_open: initialize mutex: %s\n",
             strerror(pr));
         goto fail_w_dctx;
     }
     FILE *fin = fopen(filename, "rb");
     if (!fin) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_reader_open: open file");
+        perror("zseek_reader_open: open file");
         goto fail_w_lock;
     }
     reader->fin = fin;
@@ -66,7 +66,7 @@ nio_archive_reader_t *nio_archive_reader_open(const char *filename,
     ZSTD_seekTable *st = read_seek_table(fin);
     if (!st) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_reader_open: read seek table failed\n");
+        fprintf(stderr, "zseek_reader_open: read seek table failed\n");
         goto fail_w_fin;
     }
     reader->st = st;
@@ -85,19 +85,18 @@ fail:
     return NULL;
 }
 
-bool nio_archive_reader_close(nio_archive_reader_t *reader,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (fclose(reader->fin) == EOF) {
         // TODO: Return in errbuf instead.
-        perror("nio_archive_reader_close: close file");
+        perror("zseek_reader_close: close file");
         return false;
     }
 
     int pr = pthread_rwlock_destroy(&reader->lock);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_raeder_close: destroy mutex: %s\n",
+        fprintf(stderr, "zseek_raeder_close: destroy mutex: %s\n",
             strerror(pr));
         return false;
     }
@@ -105,7 +104,7 @@ bool nio_archive_reader_close(nio_archive_reader_t *reader,
     size_t r = ZSTD_freeDCtx(reader->dctx);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_reader_close: free context: %s\n",
+        fprintf(stderr, "zseek_reader_close: free context: %s\n",
             ZSTD_getErrorName(r));
         return false;
     }
@@ -115,8 +114,8 @@ bool nio_archive_reader_close(nio_archive_reader_t *reader,
     return true;
 }
 
-ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE])
+ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
+    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO: Try to return as much as possible (multiple frames).
 
@@ -127,8 +126,7 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
     int pr = pthread_rwlock_rdlock(&reader->lock);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_pread: lock for reading: %s\n",
-            strerror(pr));
+        fprintf(stderr, "zseek_pread: lock for reading: %s\n", strerror(pr));
         goto fail;
     }
 
@@ -138,14 +136,14 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
         pr = pthread_rwlock_unlock(&reader->lock);
         if (pr) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_pread: unlock while upgrading: %s\n",
+            fprintf(stderr, "zseek_pread: unlock while upgrading: %s\n",
                 strerror(pr));
             goto fail;
         }
         pr = pthread_rwlock_wrlock(&reader->lock);
         if (pr) {
             // TODO: Return in errbuf instead.
-            fprintf(stderr, "nio_archive_pread: lock for writing: %s\n",
+            fprintf(stderr, "zseek_pread: lock for writing: %s\n",
                 strerror(pr));
             goto fail;
         }
@@ -156,16 +154,16 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
             cbuf = malloc(cbuf_len);
             if (!cbuf) {
                 // TODO: Return in errbuf instead.
-                perror("nio_archive_pread: allocate buffer");
+                perror("zseek_pread: allocate buffer");
                 goto fail_w_lock;
             }
             if (fread(cbuf, 1, cbuf_len, reader->fin) != cbuf_len) {
                 if (feof(reader->fin))
                     // TODO: Return in errbuf instead.
-                    fprintf(stderr, "nio_archive_pread: unexpected EOF\n");
+                    fprintf(stderr, "zseek_pread: unexpected EOF\n");
                 else
                     // TODO: Return in errbuf instead.
-                    perror("nio_archive_pread: file read failed\n");
+                    perror("zseek_pread: file read failed\n");
                 goto fail_w_cbuf;
             }
 
@@ -176,7 +174,7 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
                 void *new_data = realloc(reader->cache.data, frame_dsize);
                 if (!new_data) {
                     // TODO: Return in errbuf instead.
-                    perror("nio_archive_pread: grow cache");
+                    perror("zseek_pread: grow cache");
                     goto fail_w_cbuf;
                 }
                 reader->cache.data = new_data;
@@ -188,7 +186,7 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
                 reader->cache.capacity, cbuf, cbuf_len);
             if (ZSTD_isError(r)) {
                 // TODO: Return in errbuf instead.
-                fprintf(stderr, "nio_archive_pread: decompress frame: %s\n",
+                fprintf(stderr, "zseek_pread: decompress frame: %s\n",
                     ZSTD_getErrorName(r));
                 goto fail_w_cache;
             }
@@ -206,8 +204,7 @@ ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {
         // TODO: Return in errbuf instead.
-        fprintf(stderr, "nio_archive_pread: unlock: %s\n",
-            strerror(pr));
+        fprintf(stderr, "zseek_pread: unlock: %s\n", strerror(pr));
         goto fail;
     }
 

@@ -1,5 +1,5 @@
 /**
- * @defgroup archive_file Efficient compressed file abstraction
+ * @defgroup libzseek Efficient compressed file abstraction
  *
  * Efficient sequential write and random access read API using ZSTD.
  *
@@ -44,7 +44,7 @@
 /**
  * Error buffer size
  */
-#define NIO_ARCHIVE_ERRBUF_SIZE 80
+#define ZSEEK_ERRBUF_SIZE 80
 
 /**
  * Pluggable write handler
@@ -54,7 +54,7 @@
  * @param user_data
  * @todo add a setter for this, or pass in constructor
  */
-// typedef bool (*nio_archive_write_t)(const void *data, size_t size, *user_data);
+// typedef bool (*zseek_write_t)(const void *data, size_t size, *user_data);
 
 /**
  * Pluggable read handler
@@ -65,18 +65,18 @@
  * @param user_data
  * @todo add a setter for this, or pass in constructor
  */
-// typedef ssize_t (*nio_archive_pread_t)(void *data, size_t size, size_t offset,
+// typedef ssize_t (*zseek_pread_t)(void *data, size_t size, size_t offset,
 //     *user_data);
 
 /**
  * Handle to a compressed file for sequential writes
  */
-typedef struct nio_archive_writer nio_archive_writer_t;
+typedef struct zseek_writer zseek_writer_t;
 
 /**
  * Handle to a compressed file for random access reads
  */
-typedef struct nio_archive_reader nio_archive_reader_t;
+typedef struct zseek_reader zseek_reader_t;
 
 /**
  * Creates a compressed file for sequential writes
@@ -92,9 +92,8 @@ typedef struct nio_archive_reader nio_archive_reader_t;
  * @return
  *	Handle to perform writes or @a NULL on error
  */
-nio_archive_writer_t *nio_archive_writer_open(const char *filename,
-    int nb_workers, size_t min_frame_size,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
+    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Closes a compressed file handle for writes
@@ -108,8 +107,7 @@ nio_archive_writer_t *nio_archive_writer_open(const char *filename,
  *	populated with an error message. In either case,
  *	the @p reader is de-allocated and no longer usable.
  */
-bool nio_archive_writer_close(nio_archive_writer_t *writer,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 
 /**
@@ -134,8 +132,8 @@ bool nio_archive_writer_close(nio_archive_writer_t *writer,
  *	True on success, false on error. If not @a NULL, @p errbuf is
  *	populated with an error message.
  */
-bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
-    size_t len, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * @param filename
@@ -145,8 +143,8 @@ bool nio_archive_write(nio_archive_writer_t *writer, const void *buf,
  *	True on success, false on error. If not @a NULL, @p errbuf is
  *	populated with an error message.
  */
-nio_archive_reader_t *nio_archive_reader_open(const char *filename,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+zseek_reader_t *zseek_reader_open(const char *filename,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Closes a compressed file handle for reads
@@ -160,8 +158,7 @@ nio_archive_reader_t *nio_archive_reader_open(const char *filename,
  *	populated with an error message. In either case,
  *	the @p reader is de-allocated and no longer usable.
  */
-bool nio_archive_reader_close(nio_archive_reader_t *reader,
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Reads data from an arbitrary offset of a compressed file
@@ -180,8 +177,8 @@ bool nio_archive_reader_close(nio_archive_reader_t *reader,
  *	Number of bytes read, -1 on error. If not @a NULL, @p errbuf is
  *	populated with an error message.
  */
-ssize_t nio_archive_pread(nio_archive_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[NIO_ARCHIVE_ERRBUF_SIZE]);
+ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
+    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * @}

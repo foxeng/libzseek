@@ -1,5 +1,5 @@
-LIB_SHARED = libnioarchive.so
-LIB_STATIC = libnioarchive.a
+LIB_SHARED = libzseek.so
+LIB_STATIC = libzseek.a
 objs = seek_table.o compress.o decompress.o
 
 CFLAGS += -Wall -std=gnu99 -pthread -O3 -g

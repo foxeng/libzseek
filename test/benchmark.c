@@ -11,7 +11,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>   // getrusage
 
-#include "../archive.h"
+#include "../zseek.h"
 
 #define CHUNK_SIZE (1 << 20)  // 1 MiB
 
@@ -87,7 +87,7 @@ void report(results_t *r, int nb_workers, bool terse)
         printf("Throughput (MiB/sec): %.2lf (%.2lf per worker)\n", tput_tot,
             tput_pw);
         printf("Max RSS: %.0lf (MiB)\n", mem);
-        printf("nio_archive_write() latency (msec): %lf +- %lf [%lf, %lf]\n",
+        printf("zseek_write() latency (msec): %lf +- %lf [%lf, %lf]\n",
             lat_mean, lat_std, lat_min, lat_max);
     }
 }
@@ -141,11 +141,11 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
         return NULL;
     }
 
-    char errbuf[NIO_ARCHIVE_ERRBUF_SIZE];
-    nio_archive_writer_t *writer = nio_archive_writer_open(cfilename,
-        nb_workers, min_frame_size, errbuf);
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_writer_t *writer = zseek_writer_open(cfilename, nb_workers,
+        min_frame_size, errbuf);
     if (!writer) {
-        fprintf(stderr, "compress: nio_archive_writer_open failed\n");
+        fprintf(stderr, "compress: zseek_writer_open failed\n");
         return NULL;
     }
 
@@ -157,8 +157,8 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
             return NULL;
         }
 
-        if (!nio_archive_write(writer, buf + fpos, len, errbuf)) {
-            fprintf(stderr, "compress: nio_archive_write failed\n");
+        if (!zseek_write(writer, buf + fpos, len, errbuf)) {
+            fprintf(stderr, "compress: zseek_write failed\n");
             return NULL;
         }
 
@@ -172,8 +172,8 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
         latencies[num_latencies++] = lat;
     }
 
-    if (!nio_archive_writer_close(writer, errbuf)) {
-        fprintf(stderr, "compress: nio_archive_writer_close failed\n");
+    if (!zseek_writer_close(writer, errbuf)) {
+        fprintf(stderr, "compress: zseek_writer_close failed\n");
         return NULL;
     }
 
