@@ -252,7 +252,7 @@ struct ZSTD_frameLog_s {
     U32 seekTableIndex;
 } framelog_t;
 
-size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
+static size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
 {
     /* allocate some initial space */
     size_t const FRAMELOG_STARTING_CAPACITY = 16;
@@ -264,7 +264,7 @@ size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
     return 0;
 }
 
-size_t ZSTD_seekable_frameLog_freeVec(ZSTD_frameLog* fl)
+static size_t ZSTD_seekable_frameLog_freeVec(ZSTD_frameLog* fl)
 {
     if (fl != NULL) free(fl->entries);
     return 0;

@@ -5,10 +5,10 @@
 #include <errno.h>      // perror
 #include <string.h>     // strcpy, strcat, memcmp
 
-#include "../zseek.h"
+#include <zseek.h>
 
 #define BUF_SIZE (1 << 12)  // 4 KiB
-#define NB_WORKERS 4
+#define NB_WORKERS 1
 #define MIN_FRAME_SIZE (1 << 20)    // 1 MiB
 
 /**

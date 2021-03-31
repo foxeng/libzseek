@@ -32,6 +32,8 @@ struct zseek_reader {
 zseek_reader_t *zseek_reader_open(const char *filename,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
     zseek_reader_t *reader = malloc(sizeof(zseek_reader_t));
     if (!reader) {
         // TODO: Return in errbuf instead.
@@ -87,6 +89,8 @@ fail:
 
 bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
     if (fclose(reader->fin) == EOF) {
         // TODO: Return in errbuf instead.
         perror("zseek_reader_close: close file");
@@ -117,6 +121,8 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
     // TODO: Try to return as much as possible (multiple frames).
 
     ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
@@ -131,7 +137,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     }
 
     void *cbuf = NULL;  // Declared here to be in scope at fail_w_cbuf
-    if (!reader->cache.data || reader->cache.frame_idx != frame_idx) {
+    if (!reader->cache.data || reader->cache.frame_idx != (size_t)frame_idx) {
         // Upgrade to write lock
         pr = pthread_rwlock_unlock(&reader->lock);
         if (pr) {
@@ -148,7 +154,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
             goto fail;
         }
 
-        if (!reader->cache.data || reader->cache.frame_idx != frame_idx) {
+        if (!reader->cache.data || reader->cache.frame_idx != (size_t)frame_idx) {
             // Read compressed frame
             size_t cbuf_len = frame_size_c(reader->st, frame_idx);
             cbuf = malloc(cbuf_len);

@@ -1,0 +1,13 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: libzseek
+Description: Random access decompression library
+Version: @VERSION@
+Requires:
+Requires.private: libzstd >= 1.4.9
+Libs: -L${libdir} -lzseek
+Libs.private: @ZSTD_LIBS@
+Cflags: -I${includedir}/

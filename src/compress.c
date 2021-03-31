@@ -14,8 +14,6 @@
 #define COMPRESSION_LEVEL ZSTD_CLEVEL_DEFAULT
 #define COMPRESSION_STRATEGY ZSTD_fast
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-
 struct zseek_writer {
     FILE *fout;
     ZSTD_CCtx *cctx;
@@ -30,6 +28,9 @@ struct zseek_writer {
 zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
+
     zseek_writer_t *writer = malloc(sizeof(zseek_writer_t));
     if (!writer) {
         // TODO: Return in errbuf instead.
@@ -60,12 +61,15 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
             ZSTD_getErrorName(r));
         goto fail_w_cctx;
     }
-    r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nb_workers);
-    if (ZSTD_isError(r)) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_writer_open: set nb of workers: %s\n",
-            ZSTD_getErrorName(r));
-        goto fail_w_cctx;
+
+    if (nb_workers > 1) {
+        r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nb_workers);
+        if (ZSTD_isError(r)) {
+	    // TODO: Return in errbuf instead.
+	    fprintf(stderr, "zseek_writer_open: set nb of workers: %s\n",
+	        ZSTD_getErrorName(r));
+	    goto fail_w_cctx;
+        }
     }
     writer->cctx = cctx;
     writer->min_frame_size = min_frame_size;
@@ -172,6 +176,8 @@ fail:
 
 bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
     if (writer->frame_uc > 0) {
         // End final frame
         if (!end_frame(writer)) {
@@ -249,6 +255,8 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)errbuf;
+
     int pr = pthread_mutex_lock(&writer->lock);
     if (pr) {
         fprintf(stderr, "zseek_write: lock mutex: %s\n", strerror(pr));

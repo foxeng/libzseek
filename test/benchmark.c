@@ -6,12 +6,13 @@
 #include <string.h>     // strcpy, strcat, memcmp
 #include <math.h>       // sqrt
 #include <time.h>       // clock_gettime
+#include <assert.h>
 
 #include <sys/stat.h>   // stat
 #include <sys/time.h>
 #include <sys/resource.h>   // getrusage
 
-#include "../zseek.h"
+#include <zseek.h>
 
 #define CHUNK_SIZE (1 << 20)  // 1 MiB
 
@@ -62,7 +63,7 @@ void report(results_t *r, int nb_workers, bool terse)
     double lat_min = r->latencies[0];
     double lat_max = r->latencies[0];
     double sum = 0;
-    for (int i = 0; i < r->num_latencies; i++) {
+    for (size_t i = 0; i < r->num_latencies; i++) {
         if (r->latencies[i] < lat_min)
             lat_min = r->latencies[i];
         if (r->latencies[i] > lat_max)
@@ -71,7 +72,7 @@ void report(results_t *r, int nb_workers, bool terse)
     }
     double lat_mean = sum / r->num_latencies;
     sum = 0;
-    for (int i = 0; i < r->num_latencies; i++)
+    for (size_t i = 0; i < r->num_latencies; i++)
         sum += (r->latencies[i] - lat_mean) * (r->latencies[i] - lat_mean);
     double lat_std = sqrt(sum / r->num_latencies);
 
@@ -149,7 +150,7 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
         return NULL;
     }
 
-    for (off_t fpos = 0; fpos < buf_len; fpos += CHUNK_SIZE) {
+    for (off_t fpos = 0; fpos < (off_t)buf_len; fpos += CHUNK_SIZE) {
         size_t len = MIN(buf_len - fpos, CHUNK_SIZE);
         struct timespec t1;
         if (clock_gettime(CLOCK_MONOTONIC, &t1) == -1) {
@@ -169,6 +170,7 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
         }
         double lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
+	assert(num_latencies < buf_len / CHUNK_SIZE);
         latencies[num_latencies++] = lat;
     }
 
