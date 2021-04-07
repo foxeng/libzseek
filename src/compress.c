@@ -28,10 +28,16 @@ struct zseek_writer {
 zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    zseek_writer_t *writer = NULL;
+    ZSTD_CCtx *cctx = NULL;
+    size_t r = 0;
+    int pr = 0;
+    ZSTD_frameLog *fl = NULL;
+    FILE *fout = NULL;
+
     (void)errbuf;
 
-
-    zseek_writer_t *writer = malloc(sizeof(zseek_writer_t));
+    writer = malloc(sizeof(zseek_writer_t));
     if (!writer) {
         // TODO: Return in errbuf instead.
         perror("zseek_writer_open: allocate writer");
@@ -39,13 +45,13 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     }
     memset(writer, 0, sizeof(*writer));
 
-    ZSTD_CCtx *cctx = ZSTD_createCCtx();
+    cctx = ZSTD_createCCtx();
     if (!cctx) {
         // TODO: Return in errbuf instead.
         perror("zseek_writer_open: create context");
         goto fail_w_writer;
     }
-    size_t r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel,
+    r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel,
         COMPRESSION_LEVEL);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
@@ -74,7 +80,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     writer->cctx = cctx;
     writer->min_frame_size = min_frame_size;
 
-    int pr = pthread_mutex_init(&writer->lock, NULL);
+    pr = pthread_mutex_init(&writer->lock, NULL);
     if (pr) {
         // TODO: Return in errbuf instead.
         fprintf(stderr, "zseek_writer_open: initialize mutex: %s\n",
@@ -82,7 +88,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
         goto fail_w_cctx;
     }
 
-    ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(0);
+    fl = ZSTD_seekable_createFrameLog(0);
     if (!fl) {
         // TODO: Return in errbuf instead.
         fprintf(stderr, "zseek_writer_open: create frame log failed\n");
@@ -90,7 +96,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     }
     writer->fl = fl;
 
-    FILE *fout = fopen(filename, "wb");
+    fout = fopen(filename, "wb");
     if (!fout) {
         // TODO: Return in errbuf instead.
         perror("zseek_writer_open: open file");
@@ -120,18 +126,25 @@ static bool end_frame(zseek_writer_t *writer)
 {
     // TODO: Communicate error info?
 
+    size_t buf_len = 0;
+    void *buf = NULL;
+    ZSTD_inBuffer buffin;
+    size_t rem = 0;
+    size_t r = 0;
+
     // Allocate output buffer
-    size_t buf_len = ZSTD_CStreamOutSize();
-    void *buf = malloc(buf_len);
+    buf_len = ZSTD_CStreamOutSize();
+    buf = malloc(buf_len);
     if (!buf) {
         perror("end_frame: allocate output buffer");
         goto fail;
     }
 
-    ZSTD_inBuffer buffin = {NULL, 0, 0};
-    size_t rem = 0;
+    buffin = (ZSTD_inBuffer){NULL, 0, 0};
+    rem = 0;
     do {
         ZSTD_outBuffer buffout = {buf, buf_len, 0};
+        size_t written = 0;
 
         // Flush and end frame
         rem = ZSTD_compressStream2(writer->cctx, &buffout, &buffin,
@@ -146,7 +159,7 @@ static bool end_frame(zseek_writer_t *writer)
         writer->frame_cm += buffout.pos;
 
         // Write output
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
+        written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
         if (written < buffout.pos) {
             perror("end_frame: write to file");
             goto fail_w_buf;
@@ -154,8 +167,8 @@ static bool end_frame(zseek_writer_t *writer)
     } while (rem > 0);
 
     // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
+    r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm, writer->frame_uc,
+        0);
     if (ZSTD_isError(r)) {
         fprintf(stderr, "end_frame: log frame: %s\n", ZSTD_getErrorName(r));
         goto fail_w_buf;
@@ -176,6 +189,12 @@ fail:
 
 bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    size_t buf_len = 0;
+    void *buf = NULL;
+    size_t rem = 0;
+    size_t r = 0;
+    int pr = 0;
+
     (void)errbuf;
 
     if (writer->frame_uc > 0) {
@@ -187,8 +206,8 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
         }
     }
 
-    size_t buf_len = 4096;
-    void *buf = malloc(buf_len);
+    buf_len = 4096;
+    buf = malloc(buf_len);
     if (!buf) {
         // TODO: Return in errbuf instead.
         perror("zseek_writer_close: allocate output buffer");
@@ -196,9 +215,10 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
     }
 
     // Write seek table
-    size_t rem = 0;
+    rem = 0;
     do {
         ZSTD_outBuffer buffout = {buf, buf_len, 0};
+        size_t written = 0;
 
         rem = ZSTD_seekable_writeSeekTable(writer->fl, &buffout);
         if (ZSTD_isError(rem)) {
@@ -208,7 +228,7 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
             return false;
         }
 
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
+        written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
         if (written < buffout.pos) {
             // TODO: Return in errbuf instead.
             perror("zseek_writer_close: write to file");
@@ -223,7 +243,7 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
         return false;
     }
 
-    size_t r = ZSTD_seekable_freeFrameLog(writer->fl);
+    r = ZSTD_seekable_freeFrameLog(writer->fl);
     if (ZSTD_isError(r)) {
         // TODO: Return in errbuf instead.
         fprintf(stderr, "zseek_writer_close: free frame log: %s\n",
@@ -231,7 +251,7 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
         return false;
     }
 
-    int pr = pthread_mutex_destroy(&writer->lock);
+    pr = pthread_mutex_destroy(&writer->lock);
     if (pr) {
         // TODO: Return in errbuf instead.
         fprintf(stderr, "zseek_writer_close: destroy mutex: %s\n",
@@ -255,9 +275,14 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    int pr;
+    size_t bout_len;
+    void *bout;
+    ZSTD_inBuffer buffin;
+
     (void)errbuf;
 
-    int pr = pthread_mutex_lock(&writer->lock);
+    pr = pthread_mutex_lock(&writer->lock);
     if (pr) {
         fprintf(stderr, "zseek_write: lock mutex: %s\n", strerror(pr));
         goto fail;
@@ -275,20 +300,22 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     }
 
     // Allocate output buffer
-    size_t bout_len = ZSTD_CStreamOutSize();    // TODO OPT: Tune this according to input len? (see ZSTD_compressBound)
-    void *bout = malloc(bout_len);
+    bout_len = ZSTD_CStreamOutSize();    // TODO OPT: Tune this according to input len? (see ZSTD_compressBound)
+    bout = malloc(bout_len);
     if (!bout) {
         // TODO: Return in errbuf instead.
         perror("zseek_write: allocate output buffer");
         goto fail_w_lock;
     }
 
-    ZSTD_inBuffer buffin = {buf, len, 0};
+    buffin = (ZSTD_inBuffer){buf, len, 0};
     do {
         ZSTD_outBuffer buffout = {bout, bout_len, 0};
+        size_t rem = 0;
+        size_t written = 0;
 
         // Dispatch for compression
-        size_t rem = ZSTD_compressStream2(writer->cctx, &buffout, &buffin,
+        rem = ZSTD_compressStream2(writer->cctx, &buffout, &buffin,
             ZSTD_e_continue);
         if (ZSTD_isError(rem)) {
             // TODO: Return in errbuf instead.
@@ -301,7 +328,7 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
         writer->frame_cm += buffout.pos;
 
         // Write output
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
+        written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
         if (written < buffout.pos) {
             // TODO: Return in errbuf instead.
             perror("zseek_write: write to file");

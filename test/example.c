@@ -19,43 +19,55 @@ static bool decompress(const char *ufilename, const char *cfilename)
 {
     // TODO: Access randomly, don't just scan.
 
-    FILE *fin = fopen(ufilename, "rb");
+    FILE *fin = NULL;
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_reader_t *reader = NULL;
+    size_t buf_len = 0;
+    void *ubuf = NULL;
+    void *dbuf = NULL;
+    size_t offset = 0;
+
+    fin = fopen(ufilename, "rb");
     if (!fin) {
         perror("decompress: open uncompressed file");
         return false;
     }
 
-    char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_reader_t *reader = zseek_reader_open(cfilename, errbuf);
+    reader = zseek_reader_open(cfilename, errbuf);
     if (!reader) {
         fprintf(stderr, "decompress: zseek_reader_open failed\n");
         return false;
     }
 
-    size_t buf_len = BUF_SIZE;
-    void *ubuf = malloc(buf_len);
+    buf_len = BUF_SIZE;
+    ubuf = malloc(buf_len);
     if (!ubuf) {
         perror("decompress: allocate buffer");
         return false;
     }
-    void *dbuf = malloc(buf_len);
+    dbuf = malloc(buf_len);
     if (!ubuf) {
         perror("decompress: allocate decompression buffer");
         return false;
     }
 
 
-    size_t offset = 0;
+    offset = 0;
     do {
-        size_t uread = fread(ubuf, 1, buf_len, fin);
+        size_t uread = 0;
+        size_t to_read = 0;
+
+        uread = fread(ubuf, 1, buf_len, fin);
         if (uread < buf_len && ferror(fin)) {
             perror("decompress: read uncompressed file");
             return false;
         }
 
-        size_t to_read = uread;
+        to_read = uread;
         while (to_read > 0) {
-            ssize_t dread = zseek_pread(reader, (uint8_t*)dbuf + (offset % buf_len),
+            ssize_t dread = 0;
+
+            dread = zseek_pread(reader, (uint8_t*)dbuf + (offset % buf_len),
                 to_read, offset, errbuf);
             if (dread == -1) {
                 fprintf(stderr, "decompress: zseek_pread failed\n");
@@ -95,22 +107,26 @@ static bool decompress(const char *ufilename, const char *cfilename)
  */
 static bool compress(const char *ufilename, const char *cfilename)
 {
-    FILE *fin = fopen(ufilename, "rb");
+    FILE *fin = NULL;
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_writer_t *writer = NULL;
+    size_t buf_len = 0;
+    void *buf = NULL;
+
+    fin = fopen(ufilename, "rb");
     if (!fin) {
         perror("compress: open uncompressed file");
         return false;
     }
 
-    char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_writer_t *writer = zseek_writer_open(cfilename, NB_WORKERS,
-        MIN_FRAME_SIZE, errbuf);
+    writer = zseek_writer_open(cfilename, NB_WORKERS, MIN_FRAME_SIZE, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open failed\n");
         return false;
     }
 
-    size_t buf_len = BUF_SIZE;
-    void *buf = malloc(buf_len);
+    buf_len = BUF_SIZE;
+    buf = malloc(buf_len);
     if (!buf) {
         perror("compress: allocate buffer");
         return false;
@@ -148,14 +164,16 @@ static bool compress(const char *ufilename, const char *cfilename)
 
 int main(int argc, char *argv[])
 {
+    const char *ufilename = NULL;
+    char *cfilename = NULL;
+
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s INFILE\n",
-            argv[0]);
+        fprintf(stderr, "Usage: %s INFILE\n", argv[0]);
         return 1;
     }
 
-    const char *ufilename = argv[1];
-    char *cfilename = malloc(strlen(ufilename) + 5);
+    ufilename = argv[1];
+    cfilename = malloc(strlen(ufilename) + 5);
     if (!cfilename) {
         perror("allocate output filename");
         return 1;

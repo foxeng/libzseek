@@ -32,19 +32,19 @@ typedef struct {
 static void report(const results_t *r, int nb_workers, bool terse)
 {
     // Wall time
-    double wt = difftime(r->wt2.tv_sec, r->wt1.tv_sec);
-    wt += (r->wt2.tv_nsec - r->wt1.tv_nsec) / (1000.0 * 1000 * 1000);
+    double wt = difftime(r->wt2.tv_sec, r->wt1.tv_sec) +
+        (r->wt2.tv_nsec - r->wt1.tv_nsec) / (1000.0 * 1000 * 1000);
 
     struct timeval ut1 = r->ru1.ru_utime;
     struct timeval ut2 = r->ru2.ru_utime;
     // User time
-    double ut = difftime(ut2.tv_sec, ut1.tv_sec);
-    ut += (ut2.tv_usec - ut1.tv_usec) / (1000.0 * 1000);
+    double ut = difftime(ut2.tv_sec, ut1.tv_sec) +
+        (ut2.tv_usec - ut1.tv_usec) / (1000.0 * 1000);
     struct timeval st1 = r->ru1.ru_stime;
     struct timeval st2 = r->ru2.ru_stime;
     // System time
-    double st = difftime(st2.tv_sec, st1.tv_sec);
-    st += (st2.tv_usec - st1.tv_usec) / (1000.0 * 1000);
+    double st = difftime(st2.tv_sec, st1.tv_sec) +
+        (st2.tv_usec - st1.tv_usec) / (1000.0 * 1000);
     // CPU time
     double ct = ut + st;
 
@@ -63,6 +63,8 @@ static void report(const results_t *r, int nb_workers, bool terse)
     // Latency (wall) min, max, mean and standard deviation
     double lat_min = r->latencies[0];
     double lat_max = r->latencies[0];
+    double lat_mean = 0;
+    double lat_std = 0;
     double sum = 0;
     for (size_t i = 0; i < r->num_latencies; i++) {
         if (r->latencies[i] < lat_min)
@@ -71,11 +73,11 @@ static void report(const results_t *r, int nb_workers, bool terse)
             lat_max = r->latencies[i];
         sum += r->latencies[i];
     }
-    double lat_mean = sum / r->num_latencies;
+    lat_mean = sum / r->num_latencies;
     sum = 0;
     for (size_t i = 0; i < r->num_latencies; i++)
         sum += (r->latencies[i] - lat_mean) * (r->latencies[i] - lat_mean);
-    double lat_std = sqrt(sum / r->num_latencies);
+    lat_std = sqrt(sum / r->num_latencies);
 
 
     if (terse)
@@ -102,22 +104,36 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 {
     // TODO OPT: mmap?
 
-    // Read whole file into memory
     struct stat st;
+    off_t usize = 0;
+    FILE *fin = NULL;
+    size_t buf_len = 0;
+    void *buf = NULL;
+    size_t num_latencies = 0;
+    double *latencies = NULL;
+    struct timespec wt1;
+    struct rusage ru1;
+    char errbuf[ZSEEK_ERRBUF_SIZE];
+    zseek_writer_t *writer = NULL;
+    struct timespec wt2;
+    struct rusage ru2;
+    results_t *res = NULL;
+
+    // Read whole file into memory
     if (stat(ufilename, &st) == -1) {
         perror("compress: get uncompressed info");
         return NULL;
     }
-    off_t usize = st.st_size;
+    usize = st.st_size;
 
-    FILE *fin = fopen(ufilename, "rb");
+    fin = fopen(ufilename, "rb");
     if (!fin) {
         perror("compress: open uncompressed file");
         return NULL;
     }
 
-    size_t buf_len = usize;
-    void *buf = malloc(buf_len);
+    buf_len = usize;
+    buf = malloc(buf_len);
     if (!buf) {
         perror("compress: allocate buffer");
         return NULL;
@@ -128,32 +144,32 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         return NULL;
     }
 
-    size_t num_latencies = 0;
-    double *latencies = malloc(sizeof(*latencies) * (buf_len / CHUNK_SIZE));
+    num_latencies = 0;
+    latencies = malloc(sizeof(*latencies) * (buf_len / CHUNK_SIZE));
 
 
-    struct timespec wt1;
     if (clock_gettime(CLOCK_MONOTONIC, &wt1) == -1) {
         perror("compress: get wall time");
         return NULL;
     }
-    struct rusage ru1;
     if (getrusage(RUSAGE_SELF, &ru1) == -1) {
         perror("compress: get resource usage");
         return NULL;
     }
 
-    char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_writer_t *writer = zseek_writer_open(cfilename, nb_workers,
-        min_frame_size, errbuf);
+    writer = zseek_writer_open(cfilename, nb_workers, min_frame_size, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open failed\n");
         return NULL;
     }
 
     for (off_t fpos = 0; fpos < (off_t)buf_len; fpos += CHUNK_SIZE) {
-        size_t len = MIN(buf_len - fpos, CHUNK_SIZE);
+        size_t len;
         struct timespec t1;
+        struct timespec t2;
+        double lat;
+
+        len = MIN(buf_len - fpos, CHUNK_SIZE);
         if (clock_gettime(CLOCK_MONOTONIC, &t1) == -1) {
             perror("compress: get inside wall time");
             return NULL;
@@ -164,12 +180,11 @@ static results_t *compress(const char *ufilename, const char *cfilename,
             return NULL;
         }
 
-        struct timespec t2;
         if (clock_gettime(CLOCK_MONOTONIC, &t2) == -1) {
             perror("compress: get inside wall time");
             return NULL;
         }
-        double lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
+        lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
         assert(num_latencies < buf_len / CHUNK_SIZE);
         latencies[num_latencies++] = lat;
@@ -180,17 +195,15 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         return NULL;
     }
 
-    struct timespec wt2;
     if (clock_gettime(CLOCK_MONOTONIC, &wt2) == -1) {
         perror("compress: get wall time");
         return NULL;
     }
-    struct rusage ru2;
     if (getrusage(RUSAGE_SELF, &ru2) == -1) {
         perror("compress: get resource usage");
         return NULL;
     }
-    results_t *res = malloc(sizeof(results_t));
+    res = malloc(sizeof(*res));
     if (!res) {
         perror("compress: allocate results");
         return NULL;
@@ -216,23 +229,30 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
 int main(int argc, char *argv[])
 {
+    const char *ufilename = NULL;
+    const char *cfilename = NULL;
+    int nb_workers = 0;
+    size_t frame_size = 0;
+    results_t *res = NULL;
+    bool terse = false;
+
     if (argc < 4) {
         fprintf(stderr, "Usage: %s INFILE nb_workers frame_size (MiB) [-t]\n",
             argv[0]);
         return 1;
     }
 
-    const char *ufilename = argv[1];
-    const char *cfilename = "/dev/null";
+    ufilename = argv[1];
+    cfilename = "/dev/null";
 
-    int nb_workers = atoi(argv[2]);
-    size_t frame_size = atoi(argv[3]) * (1 << 20);
+    nb_workers = atoi(argv[2]);
+    frame_size = atoi(argv[3]) * (1 << 20);
 
-    results_t *res = compress(ufilename, cfilename, nb_workers, frame_size);
+    res = compress(ufilename, cfilename, nb_workers, frame_size);
     if (!res)
         return 1;
 
-    bool terse = false;
+    terse = false;
     if (argc > 4 && strcmp(argv[4], "-t") == 0) {
         terse = true;
     }
