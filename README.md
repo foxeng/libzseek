@@ -9,17 +9,17 @@ with multithreading support.
 # Build
 
 ```sh
+autoreconf --install  # requires autoconf-archive
+./configure
 make
 ```
 
 # Test
 
 Elementary test to compress, decomporess and validate a user-specified file. See
-`test/test.c`.
+`test/example.c`.
 
 ```sh
-cd test
-make test   # builds zstd from source and links against it
 ./test <path-to-uncompressed-file>
 ```
 
@@ -29,11 +29,6 @@ Elementary **compression-only** benchmark on a user-specified file. Allows
 controlling various parameters and measures time and resource usage. Tries to
 eliminate I/O variability by **loading the whole file to memory** at startup.
 See `test/benchmark.c`.
-
-```sh
-cd test
-make benchmark  # builds zstd from source and links against it
-```
 
 For a single run:
 
