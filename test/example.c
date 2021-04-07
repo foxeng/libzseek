@@ -1,5 +1,6 @@
 #include <stddef.h>     // size_t
 #include <stdbool.h>    // bool
+#include <stdint.h>     // uint*_t
 #include <stdio.h>      // I/O
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // perror
@@ -14,7 +15,7 @@
 /**
  * Decompress the contents of @cfilename and compare with @ufilename.
  */
-bool decompress(char *ufilename, char *cfilename)
+static bool decompress(const char *ufilename, const char *cfilename)
 {
     // TODO: Access randomly, don't just scan.
 
@@ -54,7 +55,7 @@ bool decompress(char *ufilename, char *cfilename)
 
         size_t to_read = uread;
         while (to_read > 0) {
-            ssize_t dread = zseek_pread(reader, dbuf + (offset % buf_len),
+            ssize_t dread = zseek_pread(reader, (uint8_t*)dbuf + (offset % buf_len),
                 to_read, offset, errbuf);
             if (dread == -1) {
                 fprintf(stderr, "decompress: zseek_pread failed\n");
@@ -92,7 +93,7 @@ bool decompress(char *ufilename, char *cfilename)
 /**
  * Compress the contents of @ufilename to @cfilename.
  */
-bool compress(char *ufilename, char *cfilename)
+static bool compress(const char *ufilename, const char *cfilename)
 {
     FILE *fin = fopen(ufilename, "rb");
     if (!fin) {
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    char *ufilename = argv[1];
+    const char *ufilename = argv[1];
     char *cfilename = malloc(strlen(ufilename) + 5);
     if (!cfilename) {
         perror("allocate output filename");

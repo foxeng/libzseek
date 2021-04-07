@@ -1,5 +1,6 @@
 #include <stdbool.h>    // bool
 #include <stddef.h>     // size_t
+#include <stdint.h>     // uint*_t
 #include <stdio.h>      // I/O
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // errno
@@ -205,7 +206,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 
     size_t offset_in_frame = offset - frame_offset_d(reader->st, frame_idx);
     size_t to_copy = MIN(count, reader->cache.frame_len - offset_in_frame);
-    memcpy(buf, reader->cache.data + offset_in_frame, to_copy);
+    memcpy(buf, (uint8_t*)reader->cache.data + offset_in_frame, to_copy);
 
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {

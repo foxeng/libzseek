@@ -1,4 +1,5 @@
 #include <stddef.h>     // size_t
+#include <stdint.h>     // uint*_t
 #include <stdbool.h>    // bool
 #include <stdio.h>      // I/O
 #include <stdlib.h>     // malloc, free
@@ -28,7 +29,7 @@ typedef struct {
     size_t num_latencies;
 } results_t;
 
-void report(results_t *r, int nb_workers, bool terse)
+static void report(const results_t *r, int nb_workers, bool terse)
 {
     // Wall time
     double wt = difftime(r->wt2.tv_sec, r->wt1.tv_sec);
@@ -96,8 +97,8 @@ void report(results_t *r, int nb_workers, bool terse)
 /**
  * Compress the contents of @ufilename to @cfilename.
  */
-results_t *compress(char *ufilename, char *cfilename, int nb_workers,
-    size_t min_frame_size)
+static results_t *compress(const char *ufilename, const char *cfilename,
+    int nb_workers, size_t min_frame_size)
 {
     // TODO OPT: mmap?
 
@@ -158,7 +159,7 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
             return NULL;
         }
 
-        if (!zseek_write(writer, buf + fpos, len, errbuf)) {
+        if (!zseek_write(writer, (uint8_t*)buf + fpos, len, errbuf)) {
             fprintf(stderr, "compress: zseek_write failed\n");
             return NULL;
         }
@@ -170,7 +171,7 @@ results_t *compress(char *ufilename, char *cfilename, int nb_workers,
         }
         double lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
-	assert(num_latencies < buf_len / CHUNK_SIZE);
+        assert(num_latencies < buf_len / CHUNK_SIZE);
         latencies[num_latencies++] = lat;
     }
 
@@ -221,8 +222,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    char *ufilename = argv[1];
-    char *cfilename = "/dev/null";
+    const char *ufilename = argv[1];
+    const char *cfilename = "/dev/null";
 
     int nb_workers = atoi(argv[2]);
     size_t frame_size = atoi(argv[3]) * (1 << 20);

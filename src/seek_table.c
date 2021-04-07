@@ -95,12 +95,12 @@ static bool read_st_entries(FILE *fin, seekEntry_t *entries, size_t num_entries,
         // Parse entry
         entries[e].cOffset = c_offset;
         entries[e].dOffset = d_offset;
-        c_offset += MEM_readLE32(buf + buf_idx);
+        c_offset += MEM_readLE32((uint8_t*)buf + buf_idx);
         buf_idx += 4;
-        d_offset += MEM_readLE32(buf + buf_idx);
+        d_offset += MEM_readLE32((uint8_t*)buf + buf_idx);
         buf_idx += 4;
         if (checksum) {
-            entries[e].checksum = MEM_readLE32(buf + buf_idx);
+            entries[e].checksum = MEM_readLE32((uint8_t*)buf + buf_idx);
             buf_idx += 4;
         }
     }
