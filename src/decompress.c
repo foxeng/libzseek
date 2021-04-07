@@ -14,6 +14,7 @@
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
+// TODO: Spin this off into a "proper" type (i.e. add its own methods).
 struct zseek_frame_cache {
     void *data;
     size_t frame_idx;
@@ -41,7 +42,7 @@ zseek_reader_t *zseek_reader_open(const char *filename,
 
     (void)errbuf;
 
-    reader = malloc(sizeof(zseek_reader_t));
+    reader = malloc(sizeof(*reader));
     if (!reader) {
         // TODO: Return in errbuf instead.
         perror("zseek_reader_open: allocate reader");
@@ -123,6 +124,8 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
         return false;
     }
 
+    free(reader->cache.data);
+    seek_table_free(reader->st);
     free(reader);
 
     return true;

@@ -27,25 +27,29 @@ size_t ZSTD_seekable_writeSeekTable(ZSTD_frameLog* fl, ZSTD_outBuffer* output);
  */
 ZSTD_seekTable *read_seek_table(FILE *fin);
 /**
+ * Free the seek table pointed to by @st.
+ */
+void seek_table_free(ZSTD_seekTable *st);
+/**
  * Return the index of the frame containing decompressed @offset or -1 if offset
  * is out of range.
  */
-ssize_t offset_to_frame_idx(ZSTD_seekTable* st, size_t offset);
+ssize_t offset_to_frame_idx(ZSTD_seekTable *st, size_t offset);
 /**
  * Return the offset in the compressed file of the frame at index @frame_idx.
  */
-off_t frame_offset_c(ZSTD_seekTable* st, size_t frame_idx);
+off_t frame_offset_c(ZSTD_seekTable *st, size_t frame_idx);
 /**
  * Return the offset in the decompressed file of the frame at index @frame_idx.
  */
-off_t frame_offset_d(ZSTD_seekTable* st, size_t frame_idx);
+off_t frame_offset_d(ZSTD_seekTable *st, size_t frame_idx);
 /**
  * Return the size of the compressed frame at index @frame_idx.
  */
-size_t frame_size_c(ZSTD_seekTable* st, size_t frame_idx);
+size_t frame_size_c(ZSTD_seekTable *st, size_t frame_idx);
 /**
  * Return the size of the decompressed frame at index @frame_idx.
  */
-size_t frame_size_d(ZSTD_seekTable* st, size_t frame_idx);
+size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx);
 
 #endif /* SEEK_TABLE_H */

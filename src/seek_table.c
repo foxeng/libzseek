@@ -205,7 +205,16 @@ fail:
     return NULL;
 }
 
-ssize_t offset_to_frame_idx(ZSTD_seekTable* st, size_t offset)
+void seek_table_free(ZSTD_seekTable *st)
+{
+    if (!st)
+        return;
+
+    free(st->entries);
+    free(st);
+}
+
+ssize_t offset_to_frame_idx(ZSTD_seekTable *st, size_t offset)
 {
     size_t lo = 0;
     size_t hi = 0;
@@ -225,25 +234,25 @@ ssize_t offset_to_frame_idx(ZSTD_seekTable* st, size_t offset)
     return lo;
 }
 
-off_t frame_offset_c(ZSTD_seekTable* st, size_t frame_idx)
+off_t frame_offset_c(ZSTD_seekTable *st, size_t frame_idx)
 {
     assert(frame_idx < st->tableLen);
     return st->entries[frame_idx].cOffset;
 }
 
-off_t frame_offset_d(ZSTD_seekTable* st, size_t frame_idx)
+off_t frame_offset_d(ZSTD_seekTable *st, size_t frame_idx)
 {
     assert(frame_idx < st->tableLen);
     return st->entries[frame_idx].dOffset;
 }
 
-size_t frame_size_c(ZSTD_seekTable* st, size_t frame_idx)
+size_t frame_size_c(ZSTD_seekTable *st, size_t frame_idx)
 {
     assert(frame_idx < st->tableLen);
     return st->entries[frame_idx + 1].cOffset - st->entries[frame_idx].cOffset;
 }
 
-size_t frame_size_d(ZSTD_seekTable* st, size_t frame_idx)
+size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx)
 {
     assert(frame_idx < st->tableLen);
     return st->entries[frame_idx + 1].dOffset - st->entries[frame_idx].dOffset;

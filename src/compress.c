@@ -37,7 +37,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
 
     (void)errbuf;
 
-    writer = malloc(sizeof(zseek_writer_t));
+    writer = malloc(sizeof(*writer));
     if (!writer) {
         // TODO: Return in errbuf instead.
         perror("zseek_writer_open: allocate writer");
