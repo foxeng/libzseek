@@ -18,6 +18,7 @@
 static bool decompress(const char *ufilename, const char *cfilename)
 {
     // TODO: Access randomly, don't just scan.
+    // TODO OPT: Clean up on error.
 
     FILE *fin = NULL;
     char errbuf[ZSEEK_ERRBUF_SIZE];
@@ -94,6 +95,11 @@ static bool decompress(const char *ufilename, const char *cfilename)
     free(dbuf);
     free(ubuf);
 
+    if (!zseek_reader_close(reader, errbuf)) {
+        fprintf(stderr, "decompress: zseek_reader_close failed\n");
+        return false;
+    }
+
     if (fclose(fin) == EOF) {
         perror("decompress: close input file");
         return false;
@@ -107,6 +113,8 @@ static bool decompress(const char *ufilename, const char *cfilename)
  */
 static bool compress(const char *ufilename, const char *cfilename)
 {
+    // TODO OPT: Clean up on error.
+
     FILE *fin = NULL;
     char errbuf[ZSEEK_ERRBUF_SIZE];
     zseek_writer_t *writer = NULL;
@@ -164,6 +172,8 @@ static bool compress(const char *ufilename, const char *cfilename)
 
 int main(int argc, char *argv[])
 {
+    // TODO OPT: Clean up on error.
+
     const char *ufilename = NULL;
     char *cfilename = NULL;
 
@@ -188,4 +198,6 @@ int main(int argc, char *argv[])
         return 1;
 
     printf("SUCCESS\n");
+
+    free(cfilename);
 }

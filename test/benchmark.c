@@ -7,7 +7,6 @@
 #include <string.h>     // strcpy, strcat, memcmp
 #include <math.h>       // sqrt
 #include <time.h>       // clock_gettime
-#include <assert.h>
 
 #include <sys/stat.h>   // stat
 #include <sys/time.h>
@@ -19,7 +18,7 @@
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-typedef struct {
+typedef struct results {
     off_t usize;
     struct timespec wt1;
     struct timespec wt2;
@@ -28,6 +27,33 @@ typedef struct {
     double *latencies;
     size_t num_latencies;
 } results_t;
+
+static results_t *results_new(size_t latencies_capacity)
+{
+    double *latencies;
+    results_t *res;
+
+    latencies = malloc(latencies_capacity * sizeof(*latencies));
+    if (!latencies)
+        return NULL;
+
+    res = malloc(sizeof(*res));
+    if (!res)
+        return NULL;
+    memset(res, 0, sizeof(*res));
+    res->latencies = latencies;
+
+    return res;
+}
+
+static void results_free(results_t *res)
+{
+    if (!res)
+        return;
+
+    free(res->latencies);
+    free(res);
+}
 
 static void report(const results_t *r, int nb_workers, bool terse)
 {
@@ -102,6 +128,7 @@ static void report(const results_t *r, int nb_workers, bool terse)
 static results_t *compress(const char *ufilename, const char *cfilename,
     int nb_workers, size_t min_frame_size)
 {
+    // TODO OPT: Clean up on error.
     // TODO OPT: mmap?
 
     struct stat st;
@@ -109,14 +136,8 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     FILE *fin = NULL;
     size_t buf_len = 0;
     void *buf = NULL;
-    size_t num_latencies = 0;
-    double *latencies = NULL;
-    struct timespec wt1;
-    struct rusage ru1;
     char errbuf[ZSEEK_ERRBUF_SIZE];
     zseek_writer_t *writer = NULL;
-    struct timespec wt2;
-    struct rusage ru2;
     results_t *res = NULL;
 
     // Read whole file into memory
@@ -144,15 +165,19 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         return NULL;
     }
 
-    num_latencies = 0;
-    latencies = malloc(sizeof(*latencies) * (buf_len / CHUNK_SIZE));
+    res = results_new((buf_len / CHUNK_SIZE) + 1);
+    if (!res) {
+        perror("compress: allocate results");
+        return NULL;
+    }
+    res->usize = usize;
 
 
-    if (clock_gettime(CLOCK_MONOTONIC, &wt1) == -1) {
+    if (clock_gettime(CLOCK_MONOTONIC, &res->wt1) == -1) {
         perror("compress: get wall time");
         return NULL;
     }
-    if (getrusage(RUSAGE_SELF, &ru1) == -1) {
+    if (getrusage(RUSAGE_SELF, &res->ru1) == -1) {
         perror("compress: get resource usage");
         return NULL;
     }
@@ -186,8 +211,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         }
         lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
-        assert(num_latencies < buf_len / CHUNK_SIZE);
-        latencies[num_latencies++] = lat;
+        res->latencies[res->num_latencies++] = lat;
     }
 
     if (!zseek_writer_close(writer, errbuf)) {
@@ -195,26 +219,14 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         return NULL;
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC, &wt2) == -1) {
+    if (clock_gettime(CLOCK_MONOTONIC, &res->wt2) == -1) {
         perror("compress: get wall time");
         return NULL;
     }
-    if (getrusage(RUSAGE_SELF, &ru2) == -1) {
+    if (getrusage(RUSAGE_SELF, &res->ru2) == -1) {
         perror("compress: get resource usage");
         return NULL;
     }
-    res = malloc(sizeof(*res));
-    if (!res) {
-        perror("compress: allocate results");
-        return NULL;
-    }
-    res->usize = usize;
-    res->wt1 = wt1;
-    res->wt2 = wt2;
-    res->ru1 = ru1;
-    res->ru2 = ru2;
-    res->num_latencies = num_latencies;
-    res->latencies = latencies;
 
 
     free(buf);
@@ -257,4 +269,6 @@ int main(int argc, char *argv[])
         terse = true;
     }
     report(res, nb_workers, terse);
+
+    results_free(res);
 }
