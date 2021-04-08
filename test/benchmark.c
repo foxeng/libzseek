@@ -184,7 +184,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
     writer = zseek_writer_open(cfilename, nb_workers, min_frame_size, errbuf);
     if (!writer) {
-        fprintf(stderr, "compress: zseek_writer_open failed\n");
+        fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         return NULL;
     }
 
@@ -201,7 +201,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         }
 
         if (!zseek_write(writer, (uint8_t*)buf + fpos, len, errbuf)) {
-            fprintf(stderr, "compress: zseek_write failed\n");
+            fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
             return NULL;
         }
 
@@ -215,7 +215,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
 
     if (!zseek_writer_close(writer, errbuf)) {
-        fprintf(stderr, "compress: zseek_writer_close failed\n");
+        fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
         return NULL;
     }
 

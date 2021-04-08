@@ -11,6 +11,7 @@
 
 #include "zseek.h"
 #include "seek_table.h"
+#include "common.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -40,43 +41,35 @@ zseek_reader_t *zseek_reader_open(const char *filename,
     FILE *fin = NULL;
     ZSTD_seekTable *st = NULL;
 
-    (void)errbuf;
-
     reader = malloc(sizeof(*reader));
     if (!reader) {
-        // TODO: Return in errbuf instead.
-        perror("zseek_reader_open: allocate reader");
+        set_error_with_errno(errbuf, "allocate reader", errno);
         goto fail;
     }
     memset(reader, 0, sizeof(*reader));
 
     dctx = ZSTD_createDCtx();
     if (!dctx) {
-        // TODO: Return in errbuf instead.
-        perror("zseek_reader_open: create context");
+        set_error(errbuf, "context creation failed");
         goto fail_w_reader;
     }
     reader->dctx = dctx;
 
     pr = pthread_rwlock_init(&reader->lock, NULL);
     if (pr) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_reader_open: initialize mutex: %s\n",
-            strerror(pr));
+        set_error_with_errno(errbuf, "initialize lock", pr);
         goto fail_w_dctx;
     }
     fin = fopen(filename, "rb");
     if (!fin) {
-        // TODO: Return in errbuf instead.
-        perror("zseek_reader_open: open file");
+        set_error_with_errno(errbuf, "open file", errno);
         goto fail_w_lock;
     }
     reader->fin = fin;
 
     st = read_seek_table(fin);
     if (!st) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_reader_open: read seek table failed\n");
+        set_error(errbuf, "read_seek_table failed");
         goto fail_w_fin;
     }
     reader->st = st;
@@ -100,27 +93,20 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
     int pr = 0;
     size_t r = 0;
 
-    (void)errbuf;
-
     if (fclose(reader->fin) == EOF) {
-        // TODO: Return in errbuf instead.
-        perror("zseek_reader_close: close file");
+        set_error_with_errno(errbuf, "close file", errno);
         return false;
     }
 
     pr = pthread_rwlock_destroy(&reader->lock);
     if (pr) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_raeder_close: destroy mutex: %s\n",
-            strerror(pr));
+        set_error_with_errno(errbuf, "destroy lock", pr);
         return false;
     }
 
     r = ZSTD_freeDCtx(reader->dctx);
     if (ZSTD_isError(r)) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_reader_close: free context: %s\n",
-            ZSTD_getErrorName(r));
+        set_error(errbuf, "%s: %s", "free context", ZSTD_getErrorName(r));
         return false;
     }
 
@@ -140,8 +126,6 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset_in_frame = 0;
     size_t to_copy = 0;
 
-    (void)errbuf;
-
     // TODO: Try to return as much as possible (multiple frames).
 
     frame_idx = offset_to_frame_idx(reader->st, offset);
@@ -150,8 +134,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 
     pr = pthread_rwlock_rdlock(&reader->lock);
     if (pr) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_pread: lock for reading: %s\n", strerror(pr));
+        set_error_with_errno(errbuf, "lock for reading", pr);
         goto fail;
     }
 
@@ -159,16 +142,12 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
         // Upgrade to write lock
         pr = pthread_rwlock_unlock(&reader->lock);
         if (pr) {
-            // TODO: Return in errbuf instead.
-            fprintf(stderr, "zseek_pread: unlock while upgrading: %s\n",
-                strerror(pr));
+            set_error_with_errno(errbuf, "unlock to upgrade", pr);
             goto fail;
         }
         pr = pthread_rwlock_wrlock(&reader->lock);
         if (pr) {
-            // TODO: Return in errbuf instead.
-            fprintf(stderr, "zseek_pread: lock for writing: %s\n",
-                strerror(pr));
+            set_error_with_errno(errbuf, "lock for writing", pr);
             goto fail;
         }
 
@@ -181,17 +160,14 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
             cbuf_len = frame_size_c(reader->st, frame_idx);
             cbuf = malloc(cbuf_len);
             if (!cbuf) {
-                // TODO: Return in errbuf instead.
-                perror("zseek_pread: allocate buffer");
+                set_error_with_errno(errbuf, "allocate buffer", errno);
                 goto fail_w_lock;
             }
             if (fread(cbuf, 1, cbuf_len, reader->fin) != cbuf_len) {
                 if (feof(reader->fin))
-                    // TODO: Return in errbuf instead.
-                    fprintf(stderr, "zseek_pread: unexpected EOF\n");
+                    set_error(errbuf, "unexpected EOF");
                 else
-                    // TODO: Return in errbuf instead.
-                    perror("zseek_pread: file read failed\n");
+                    set_error_with_errno(errbuf, "read file", errno);
                 goto fail_w_cbuf;
             }
 
@@ -201,8 +177,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
                 // TODO OPT: Or free / malloc instead, since we don't care about old data?
                 void *new_data = realloc(reader->cache.data, frame_dsize);
                 if (!new_data) {
-                    // TODO: Return in errbuf instead.
-                    perror("zseek_pread: grow cache");
+                    set_error_with_errno(errbuf, "grow cache", errno);
                     goto fail_w_cbuf;
                 }
                 reader->cache.data = new_data;
@@ -213,8 +188,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
             r = ZSTD_decompressDCtx(reader->dctx, reader->cache.data,
                 reader->cache.capacity, cbuf, cbuf_len);
             if (ZSTD_isError(r)) {
-                // TODO: Return in errbuf instead.
-                fprintf(stderr, "zseek_pread: decompress frame: %s\n",
+                set_error(errbuf, "%s: %s", "decompress frame",
                     ZSTD_getErrorName(r));
                 goto fail_w_cache;
             }
@@ -231,8 +205,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {
-        // TODO: Return in errbuf instead.
-        fprintf(stderr, "zseek_pread: unlock: %s\n", strerror(pr));
+        set_error_with_errno(errbuf, "unlock", pr);
         goto fail;
     }
 

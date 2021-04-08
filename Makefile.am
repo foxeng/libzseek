@@ -22,7 +22,9 @@ libzseek_la_LIBADD = $(ZSTD_LIBS) $(PTHREAD_LIBS)
 libzseek_la_SOURCES = src/seek_table.h \
 		      src/compress.c \
 		      src/decompress.c \
-		      src/seek_table.c
+		      src/seek_table.c \
+		      src/common.h \
+		      src/common.c
 
 include_HEADERS = src/zseek.h
 

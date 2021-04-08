@@ -36,7 +36,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
 
     reader = zseek_reader_open(cfilename, errbuf);
     if (!reader) {
-        fprintf(stderr, "decompress: zseek_reader_open failed\n");
+        fprintf(stderr, "decompress: zseek_reader_open: %s\n", errbuf);
         return false;
     }
 
@@ -71,7 +71,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
             dread = zseek_pread(reader, (uint8_t*)dbuf + (offset % buf_len),
                 to_read, offset, errbuf);
             if (dread == -1) {
-                fprintf(stderr, "decompress: zseek_pread failed\n");
+                fprintf(stderr, "decompress: zseek_pread: %s\n", errbuf);
                 return false;
             }
             to_read -= dread;
@@ -96,7 +96,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
     free(ubuf);
 
     if (!zseek_reader_close(reader, errbuf)) {
-        fprintf(stderr, "decompress: zseek_reader_close failed\n");
+        fprintf(stderr, "decompress: zseek_reader_close: %s\n", errbuf);
         return false;
     }
 
@@ -129,7 +129,7 @@ static bool compress(const char *ufilename, const char *cfilename)
 
     writer = zseek_writer_open(cfilename, NB_WORKERS, MIN_FRAME_SIZE, errbuf);
     if (!writer) {
-        fprintf(stderr, "compress: zseek_writer_open failed\n");
+        fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         return false;
     }
 
@@ -149,7 +149,7 @@ static bool compress(const char *ufilename, const char *cfilename)
         }
 
         if (!zseek_write(writer, buf, uread, errbuf)) {
-            fprintf(stderr, "compress: zseek_write failed\n");
+            fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
             return false;
         }
     } while (!feof(fin));
@@ -158,7 +158,7 @@ static bool compress(const char *ufilename, const char *cfilename)
     free(buf);
 
     if (!zseek_writer_close(writer, errbuf)) {
-        fprintf(stderr, "compress: zseek_writer_close failed\n");
+        fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
         return false;
     }
 
