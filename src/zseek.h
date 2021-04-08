@@ -32,8 +32,6 @@
  *  bool buffered_write(const void *data, size_t size, *user_data)
  *  bool buffered_read(void *data, size_t size, *user_data)
  *
- * @todo Consider a better name, tried to avoid the algo in the name
- *
  * @{
  */
 
