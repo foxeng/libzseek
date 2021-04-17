@@ -123,7 +123,7 @@ static void report(const results_t *r, int nb_workers, bool terse)
 }
 
 /**
- * Compress the contents of @ufilename to @cfilename.
+ * Compress the contents of @p ufilename to @p cfilename.
  */
 static results_t *compress(const char *ufilename, const char *cfilename,
     int nb_workers, size_t min_frame_size)

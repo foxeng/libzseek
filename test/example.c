@@ -13,7 +13,7 @@
 #define MIN_FRAME_SIZE (1 << 20)    // 1 MiB
 
 /**
- * Decompress the contents of @cfilename and compare with @ufilename.
+ * Decompress the contents of @p cfilename and compare with @p ufilename.
  */
 static bool decompress(const char *ufilename, const char *cfilename)
 {
@@ -109,7 +109,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
 }
 
 /**
- * Compress the contents of @ufilename to @cfilename.
+ * Compress the contents of @p ufilename to @p cfilename.
  */
 static bool compress(const char *ufilename, const char *cfilename)
 {
