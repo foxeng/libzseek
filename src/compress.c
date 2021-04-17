@@ -182,20 +182,21 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
     size_t rem = 0;
     size_t r = 0;
     int pr = 0;
+    bool is_error = false;
 
     if (writer->frame_uc > 0) {
         // End final frame
         if (!end_frame(writer)) {
             set_error(errbuf, "end_frame failed");
-            return false;   // TODO: Continue with the cleanup?
+            is_error = true;
         }
     }
 
     buf_len = 4096;
     buf = malloc(buf_len);
-    if (!buf) {
+    if (!buf && !is_error) {
         set_error_with_errno(errbuf, "allocate output buffer", errno);
-        return false;
+        is_error = true;
     }
 
     // Write seek table
@@ -205,46 +206,46 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
         size_t written = 0;
 
         rem = ZSTD_seekable_writeSeekTable(writer->fl, &buffout);
-        if (ZSTD_isError(rem)) {
+        if (ZSTD_isError(rem) && !is_error) {
             set_error(errbuf, "%s: %s", "write seek table",
                 ZSTD_getErrorName(rem));
-            return false;
+            is_error = true;
         }
 
         written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
-        if (written < buffout.pos) {
+        if (written < buffout.pos && !is_error) {
             set_error_with_errno(errbuf, "write to file", errno);
-            return false;
+            is_error = true;
         }
     } while (rem > 0);
     free(buf);
 
-    if (fclose(writer->fout) == EOF) {
+    if (fclose(writer->fout) == EOF && !is_error) {
         set_error_with_errno(errbuf, "close file", errno);
-        return false;
+        is_error = true;
     }
 
     r = ZSTD_seekable_freeFrameLog(writer->fl);
-    if (ZSTD_isError(r)) {
+    if (ZSTD_isError(r) && !is_error) {
         set_error(errbuf, "%s: %s", "free frame log", ZSTD_getErrorName(r));
-        return false;
+        is_error = true;
     }
 
     pr = pthread_mutex_destroy(&writer->lock);
-    if (pr) {
+    if (pr && !is_error) {
         set_error_with_errno(errbuf, "destroy mutex", pr);
-        return false;
+        is_error = true;
     }
 
     r = ZSTD_freeCCtx(writer->cctx);
-    if (ZSTD_isError(r)) {
+    if (ZSTD_isError(r) && !is_error) {
         set_error(errbuf, "%s: %s", "free context", ZSTD_getErrorName(r));
-        return false;
+        is_error = true;
     }
 
     free(writer);
 
-    return true;
+    return !is_error;
 }
 
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,

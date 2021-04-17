@@ -92,29 +92,30 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     int pr = 0;
     size_t r = 0;
+    bool is_error = false;
 
     if (fclose(reader->fin) == EOF) {
         set_error_with_errno(errbuf, "close file", errno);
-        return false;
+        is_error = true;
     }
 
     pr = pthread_rwlock_destroy(&reader->lock);
-    if (pr) {
+    if (pr && !is_error) {
         set_error_with_errno(errbuf, "destroy lock", pr);
-        return false;
+        is_error = true;
     }
 
     r = ZSTD_freeDCtx(reader->dctx);
-    if (ZSTD_isError(r)) {
+    if (ZSTD_isError(r) && !is_error) {
         set_error(errbuf, "%s: %s", "free context", ZSTD_getErrorName(r));
-        return false;
+        is_error = true;
     }
 
     free(reader->cache.data);
     seek_table_free(reader->st);
     free(reader);
 
-    return true;
+    return !is_error;
 }
 
 ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,

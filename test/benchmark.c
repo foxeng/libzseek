@@ -35,15 +35,20 @@ static results_t *results_new(size_t latencies_capacity)
 
     latencies = malloc(latencies_capacity * sizeof(*latencies));
     if (!latencies)
-        return NULL;
+        goto fail;
 
     res = malloc(sizeof(*res));
     if (!res)
-        return NULL;
+        goto fail_w_latencies;
     memset(res, 0, sizeof(*res));
     res->latencies = latencies;
 
     return res;
+
+fail_w_latencies:
+    free(latencies);
+fail:
+    return NULL;
 }
 
 static void results_free(results_t *res)
@@ -128,7 +133,6 @@ static void report(const results_t *r, int nb_workers, bool terse)
 static results_t *compress(const char *ufilename, const char *cfilename,
     int nb_workers, size_t min_frame_size)
 {
-    // TODO OPT: Clean up on error.
     // TODO OPT: mmap?
 
     struct stat st;
@@ -143,49 +147,48 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     // Read whole file into memory
     if (stat(ufilename, &st) == -1) {
         perror("compress: get uncompressed info");
-        return NULL;
+        goto fail;
     }
     usize = st.st_size;
+
+    buf_len = usize;
+    res = results_new((buf_len / CHUNK_SIZE) + 1);
+    if (!res) {
+        perror("compress: allocate results");
+        goto fail;
+    }
+    res->usize = usize;
 
     fin = fopen(ufilename, "rb");
     if (!fin) {
         perror("compress: open uncompressed file");
-        return NULL;
+        goto fail_w_res;
     }
 
-    buf_len = usize;
     buf = malloc(buf_len);
     if (!buf) {
         perror("compress: allocate buffer");
-        return NULL;
+        goto fail_w_fin;
     }
 
     if (fread(buf, 1, buf_len, fin) != buf_len) {
         perror("compress: read file");
-        return NULL;
+        goto fail_w_buf;
     }
-
-    res = results_new((buf_len / CHUNK_SIZE) + 1);
-    if (!res) {
-        perror("compress: allocate results");
-        return NULL;
-    }
-    res->usize = usize;
-
 
     if (clock_gettime(CLOCK_MONOTONIC, &res->wt1) == -1) {
         perror("compress: get wall time");
-        return NULL;
+        goto fail_w_buf;
     }
     if (getrusage(RUSAGE_SELF, &res->ru1) == -1) {
         perror("compress: get resource usage");
-        return NULL;
+        goto fail_w_buf;
     }
 
     writer = zseek_writer_open(cfilename, nb_workers, min_frame_size, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
-        return NULL;
+        goto fail_w_buf;
     }
 
     for (off_t fpos = 0; fpos < (off_t)buf_len; fpos += CHUNK_SIZE) {
@@ -197,17 +200,17 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         len = MIN(buf_len - fpos, CHUNK_SIZE);
         if (clock_gettime(CLOCK_MONOTONIC, &t1) == -1) {
             perror("compress: get inside wall time");
-            return NULL;
+            goto fail_w_writer;
         }
 
         if (!zseek_write(writer, (uint8_t*)buf + fpos, len, errbuf)) {
             fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
-            return NULL;
+            goto fail_w_writer;
         }
 
         if (clock_gettime(CLOCK_MONOTONIC, &t2) == -1) {
             perror("compress: get inside wall time");
-            return NULL;
+            goto fail_w_writer;
         }
         lat = difftime(t2.tv_sec, t1.tv_sec) * 1000;    // msec
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
@@ -216,16 +219,16 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
     if (!zseek_writer_close(writer, errbuf)) {
         fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
-        return NULL;
+        goto fail_w_buf;
     }
 
     if (clock_gettime(CLOCK_MONOTONIC, &res->wt2) == -1) {
         perror("compress: get wall time");
-        return NULL;
+        goto fail_w_buf;
     }
     if (getrusage(RUSAGE_SELF, &res->ru2) == -1) {
         perror("compress: get resource usage");
-        return NULL;
+        goto fail_w_buf;
     }
 
 
@@ -233,10 +236,21 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
     if (fclose(fin) == EOF) {
         perror("compress: close input file");
-        return NULL;
+        goto fail_w_res;
     }
 
     return res;
+
+fail_w_writer:
+    zseek_writer_close(writer, errbuf);
+fail_w_buf:
+    free(buf);
+fail_w_fin:
+    fclose(fin);
+fail_w_res:
+    results_free(res);
+fail:
+    return NULL;
 }
 
 int main(int argc, char *argv[])
