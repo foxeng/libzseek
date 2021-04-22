@@ -30,6 +30,7 @@ struct zseek_reader {
 
     ZSTD_seekTable *st;
     struct zseek_frame_cache cache;   // TODO: Parameterize # of cached frames.
+    size_t pos;
 };
 
 zseek_reader_t *zseek_reader_open(const char *filename,
@@ -222,4 +223,14 @@ fail_w_lock:
     pthread_rwlock_unlock(&reader->lock);
 fail:
     return -1;
+}
+
+ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    ssize_t ret = zseek_pread(reader, buf, count, reader->pos, errbuf);
+    if (ret > 0)
+        reader->pos += ret;
+
+    return ret;
 }
