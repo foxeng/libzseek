@@ -179,5 +179,23 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
+ * Reads data from the current offset of a compressed file
+ *
+ * @param reader
+ *	Compressed file reader
+ * @param[out] buf
+ *	Buffer to store decompressed data
+ * @param count
+ *	Size of decompressed data to read
+ *
+ * @param[out] errbuf
+ * @return
+ *	Number of bytes read, -1 on error. If not @a NULL, @p errbuf is
+ *	populated with an error message.
+ */
+ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
  * @}
  */
