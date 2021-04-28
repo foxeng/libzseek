@@ -86,9 +86,12 @@ typedef struct zseek_reader zseek_reader_t;
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
  * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
  *
- * @return
- *	Handle to perform writes or @a NULL on error
+ * @retval writer
+ *  Handle to perform writes
+ * @retval NULL
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
@@ -100,10 +103,12 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
  *	Compressed file handle to close
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
- * @return
- *	True on success, false on error. If not @a NULL, @p errbuf is
- *	populated with an error message. In either case,
- *	the @p reader is de-allocated and no longer usable.
+ *
+ * @retval true
+ *  On success. The @p reader is de-allocated and no longer usable.
+ * @retval false
+ *  On error. If not @a NULL, @p errbuf is populated with an error message. The
+ *  @p reader is de-allocated and no longer usable.
  */
 bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
@@ -126,9 +131,10 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
- * @return
- *	True on success, false on error. If not @a NULL, @p errbuf is
- *	populated with an error message.
+ * @retval true
+ *  On success
+ * @retval false
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
@@ -137,9 +143,11 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  * @param filename
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
- * @return
- *	True on success, false on error. If not @a NULL, @p errbuf is
- *	populated with an error message.
+ *
+ * @retval reader
+ *  Handle to perform reads
+ * @retval NULL
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_reader_t *zseek_reader_open(const char *filename,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
@@ -151,10 +159,12 @@ zseek_reader_t *zseek_reader_open(const char *filename,
  *	The compressed file reader to close
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
- * @return
- *	True on success, false on error. If not @a NULL, @p errbuf is
- *	populated with an error message. In either case,
- *	the @p reader is de-allocated and no longer usable.
+ *
+ * @retval true
+ *  On success. The @p reader is de-allocated and no longer usable.
+ * @retval false
+ *	On error. If not @a NULL, @p errbuf is populated with an error message. The
+ *  @p reader is de-allocated and no longer usable.
  */
 bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
@@ -169,11 +179,13 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *	Size of decompressed data to read
  * @param offset
  *	Offset in the decompressed data to read data from
- *
  * @param[out] errbuf
- * @return
- *	Number of bytes read, -1 on error. If not @a NULL, @p errbuf is
- *	populated with an error message.
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval N
+ *	Number of bytes read
+ * @retval -1
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE]);
@@ -187,11 +199,13 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  *	Buffer to store decompressed data
  * @param count
  *	Size of decompressed data to read
- *
  * @param[out] errbuf
- * @return
- *	Number of bytes read, -1 on error. If not @a NULL, @p errbuf is
- *	populated with an error message.
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval N
+ *  Number of bytes read
+ * @retval -1
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
