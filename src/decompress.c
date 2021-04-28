@@ -124,7 +124,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 {
     ssize_t frame_idx = 0;
     int pr = 0;
-    void *cbuf = NULL; // Declared here to be in scope at fail_w_cbuf
+    void *cbuf = NULL;
     size_t offset_in_frame = 0;
     size_t to_copy = 0;
 
