@@ -5,6 +5,8 @@
 #include <errno.h>      // errno
 #include <string.h>     // memset
 #include <pthread.h>    // pthread_mutex*
+#include <assert.h>     // assert
+#include <sys/file.h>   // flock
 
 #include <zstd.h>
 
@@ -35,6 +37,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     int pr = 0;
     ZSTD_frameLog *fl = NULL;
     FILE *fout = NULL;
+    int fdout = 0;
 
     writer = malloc(sizeof(*writer));
     if (!writer) {
@@ -86,15 +89,26 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     }
     writer->fl = fl;
 
-    fout = fopen(filename, "wb");
+    fout = fopen(filename, "wbx");
     if (!fout) {
         set_error_with_errno(errbuf, "open file", errno);
         goto fail_w_framelog;
     }
     writer->fout = fout;
+    fdout = fileno(fout);
+    assert(fdout != -1);
+    if (flock(fdout, LOCK_EX | LOCK_NB) == -1) {
+        if (errno == EWOULDBLOCK)
+            set_error(errbuf, "file is being read or written");
+        else
+            set_error_with_errno(errbuf, "lock file", errno);
+        goto fail_w_fout;
+    }
 
     return writer;
 
+fail_w_fout:
+    fclose(fout);
 fail_w_framelog:
     ZSTD_seekable_freeFrameLog(fl);
 fail_w_lock:

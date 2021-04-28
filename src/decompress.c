@@ -6,6 +6,8 @@
 #include <errno.h>      // errno
 #include <string.h>     // memset
 #include <pthread.h>    // pthread_mutex*
+#include <assert.h>     // assert
+#include <sys/file.h>   // flock
 
 #include <zstd.h>
 
@@ -40,6 +42,7 @@ zseek_reader_t *zseek_reader_open(const char *filename,
     ZSTD_DCtx *dctx = NULL;
     int pr = 0;
     FILE *fin = NULL;
+    int fdin = 0;
     ZSTD_seekTable *st = NULL;
 
     reader = malloc(sizeof(*reader));
@@ -67,6 +70,15 @@ zseek_reader_t *zseek_reader_open(const char *filename,
         goto fail_w_lock;
     }
     reader->fin = fin;
+    fdin = fileno(fin);
+    assert(fdin != -1);
+    if (flock(fdin, LOCK_SH | LOCK_NB) == -1) {
+        if (errno == EWOULDBLOCK)
+            set_error(errbuf, "file is being written");
+        else
+            set_error_with_errno(errbuf, "lock file", errno);
+        goto fail_w_fin;
+    }
 
     st = read_seek_table(fin);
     if (!st) {
@@ -124,7 +136,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 {
     ssize_t frame_idx = 0;
     int pr = 0;
-    void *cbuf = NULL; // Declared here to be in scope at fail_w_cbuf
+    void *cbuf = NULL;
     size_t offset_in_frame = 0;
     size_t to_copy = 0;
 
