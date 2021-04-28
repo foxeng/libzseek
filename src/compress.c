@@ -86,7 +86,7 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     }
     writer->fl = fl;
 
-    fout = fopen(filename, "wb");
+    fout = fopen(filename, "wbx");
     if (!fout) {
         set_error_with_errno(errbuf, "open file", errno);
         goto fail_w_framelog;
