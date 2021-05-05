@@ -32,9 +32,8 @@ void set_error_with_errno(char errbuf[ZSEEK_ERRBUF_SIZE], const char *msg, int e
     // buffer size therefore should be sufficient to avoid an ERANGE error when
     // calling strerror_r()."
     char buf2[1024];
-    const char *errstr;
 
-    errstr = xstrerror_r(errnum, buf2, 1024);
+    const char *errstr = xstrerror_r(errnum, buf2, 1024);
 
     if (!msg || *msg == '\0')
         set_error(errbuf, "%s", errstr);
@@ -45,11 +44,11 @@ void set_error_with_errno(char errbuf[ZSEEK_ERRBUF_SIZE], const char *msg, int e
 
 void set_error(char errbuf[ZSEEK_ERRBUF_SIZE], const char *message, ...)
 {
-	va_list arg_ptr;
+    if (!errbuf)
+        return;
 
-	if (errbuf) {
-		va_start(arg_ptr, message);
-		vsnprintf(errbuf, ZSEEK_ERRBUF_SIZE, message, arg_ptr);
-		va_end(arg_ptr);
-	}
+    va_list arg_ptr;
+    va_start(arg_ptr, message);
+    vsnprintf(errbuf, ZSEEK_ERRBUF_SIZE, message, arg_ptr);
+    va_end(arg_ptr);
 }
