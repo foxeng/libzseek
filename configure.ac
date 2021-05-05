@@ -25,7 +25,21 @@ AX_PTHREAD([], [AC_MSG_ERROR([requires pthread])])
 PKG_CHECK_MODULES([ZSTD], [libzstd >= 1.4.9])
 
 AX_IS_RELEASE([git-directory])
-AX_COMPILER_FLAGS([WARN_CFLAGS],[WARN_LDFLAGS])
+AX_COMPILER_FLAGS([WARN_CFLAGS],[WARN_LDFLAGS],,,[ dnl
+    -Wunused-macros dnl
+    -Wcast-qual dnl
+    -Wnull-dereference  dnl
+    -Werror=format-security dnl
+    -Wno-format-truncation  dnl
+    -Wlogical-op  dnl
+    -Wduplicated-cond dnl
+    -Wduplicated-branches  dnl
+    -Wrestrict  dnl
+    -Wno-declaration-after-statement dnl
+    -Wno-packed  dnl
+    -Wno-switch-default dnl
+    -Wno-jump-misses-init dnl
+])
 
 AC_CONFIG_MACRO_DIR([m4])
 
