@@ -41,7 +41,7 @@ typedef uint32_t U32;
 typedef uint64_t U64;
 
 /* NOTE: The below two definitions are copied verbatim from
-zstd/contrib/seekable_format/zstdseek_decompress.c @ v1.4.9 */
+zstd/contrib/seekable_format/zstdseek_decompress.c @ v1.5.0 */
 
 typedef struct {
     U64 cOffset;
@@ -241,7 +241,7 @@ size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx)
 }
 
 /* NOTE: The below are copied verbatim from
-zstd/contrib/seekable_format/zstdseek_compress.c @ v1.4.9 */
+zstd/contrib/seekable_format/zstdseek_compress.c @ v1.5.0 */
 
 typedef struct {
     U32 cSize;
@@ -268,8 +268,7 @@ static size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
     fl->entries = (framelogEntry_t*)malloc(
             sizeof(framelogEntry_t) * FRAMELOG_STARTING_CAPACITY);
     if (fl->entries == NULL) return ERROR(memory_allocation);
-    fl->capacity = FRAMELOG_STARTING_CAPACITY;
-
+    fl->capacity = (U32)FRAMELOG_STARTING_CAPACITY;
     return 0;
 }
 
@@ -281,7 +280,7 @@ static size_t ZSTD_seekable_frameLog_freeVec(ZSTD_frameLog* fl)
 
 ZSTD_frameLog* ZSTD_seekable_createFrameLog(int checksumFlag)
 {
-    ZSTD_frameLog* fl = malloc(sizeof(ZSTD_frameLog));
+    ZSTD_frameLog* const fl = (ZSTD_frameLog*)malloc(sizeof(ZSTD_frameLog));
     if (fl == NULL) return NULL;
 
     if (ZSTD_isError(ZSTD_seekable_frameLog_allocVec(fl))) {
@@ -316,7 +315,7 @@ size_t ZSTD_seekable_logFrame(ZSTD_frameLog* fl,
     if (fl->size == fl->capacity) {
         /* exponential size increase for constant amortized runtime */
         size_t const newCapacity = fl->capacity * 2;
-        framelogEntry_t* const newEntries = realloc(fl->entries,
+        framelogEntry_t* const newEntries = (framelogEntry_t*)realloc(fl->entries,
                 sizeof(framelogEntry_t) * newCapacity);
 
         if (newEntries == NULL) return ERROR(memory_allocation);
@@ -356,7 +355,7 @@ static inline size_t ZSTD_stwrite32(ZSTD_frameLog* fl,
         memcpy((BYTE*)output->dst + output->pos,
                tmp + (fl->seekTablePos - offset), lenWrite);
         output->pos += lenWrite;
-        fl->seekTablePos += lenWrite;
+        fl->seekTablePos += (U32)lenWrite;
 
         if (lenWrite < 4) return ZSTD_seekable_seekTableSize(fl) - fl->seekTablePos;
     }
@@ -405,8 +404,7 @@ size_t ZSTD_seekable_writeSeekTable(ZSTD_frameLog* fl, ZSTD_outBuffer* output)
 
     if (output->size - output->pos < 1) return seekTableLen - fl->seekTablePos;
     if (fl->seekTablePos < seekTableLen - 4) {
-        BYTE sfd = 0;
-        sfd |= (fl->checksumFlag) << 7;
+        BYTE const sfd = (BYTE)((fl->checksumFlag) << 7);
 
         ((BYTE*)output->dst)[output->pos] = sfd;
         output->pos++;

@@ -3,7 +3,7 @@ Random access decompression, using zstd.
 # General
 
 Requires zstd
-[built](https://github.com/facebook/zstd/tree/v1.4.9/lib#multithreading-support)
+[built](https://github.com/facebook/zstd/tree/v1.5.0/lib#multithreading-support)
 with multithreading support for operations with >1 workers.
 
 # Build
