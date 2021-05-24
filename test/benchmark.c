@@ -146,8 +146,8 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
     res->usize = usize;
 
-    FILE *fin = fopen(ufilename, "rb");
-    if (!fin) {
+    FILE *ufile = fopen(ufilename, "rb");
+    if (!ufile) {
         perror("compress: open uncompressed file");
         goto fail_w_res;
     }
@@ -155,29 +155,36 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     void *buf = malloc(buf_len);
     if (!buf) {
         perror("compress: allocate buffer");
-        goto fail_w_fin;
+        goto fail_w_ufile;
     }
 
-    if (fread(buf, 1, buf_len, fin) != buf_len) {
+    if (fread(buf, 1, buf_len, ufile) != buf_len) {
         perror("compress: read file");
         goto fail_w_buf;
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC, &res->wt1) == -1) {
-        perror("compress: get wall time");
-        goto fail_w_buf;
-    }
-    if (getrusage(RUSAGE_SELF, &res->ru1) == -1) {
-        perror("compress: get resource usage");
+    FILE *cfile = fopen(cfilename, "wb");
+    if (!cfile) {
+        perror("compress: open compressed file");
         goto fail_w_buf;
     }
 
+
+    if (clock_gettime(CLOCK_MONOTONIC, &res->wt1) == -1) {
+        perror("compress: get wall time");
+        goto fail_w_cfile;
+    }
+    if (getrusage(RUSAGE_SELF, &res->ru1) == -1) {
+        perror("compress: get resource usage");
+        goto fail_w_cfile;
+    }
+
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_writer_t *writer = zseek_writer_open(cfilename, nb_workers,
+    zseek_writer_t *writer = zseek_writer_open_default(cfile, nb_workers,
         min_frame_size, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
-        goto fail_w_buf;
+        goto fail_w_cfile;
     }
 
     for (off_t fpos = 0; fpos < (off_t)buf_len; fpos += CHUNK_SIZE) {
@@ -218,10 +225,15 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
 
 
+    if (fclose(cfile) == EOF) {
+        perror("compress: close compressed file");
+        goto fail_w_res;
+    }
+
     free(buf);
 
-    if (fclose(fin) == EOF) {
-        perror("compress: close input file");
+    if (fclose(ufile) == EOF) {
+        perror("compress: close uncompressed file");
         goto fail_w_res;
     }
 
@@ -229,10 +241,12 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
 fail_w_writer:
     zseek_writer_close(writer, errbuf);
+fail_w_cfile:
+    fclose(cfile);
 fail_w_buf:
     free(buf);
-fail_w_fin:
-    fclose(fin);
+fail_w_ufile:
+    fclose(ufile);
 fail_w_res:
     results_free(res);
 fail:

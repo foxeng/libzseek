@@ -7,6 +7,7 @@
 #include <string.h>     // memset
 #include <pthread.h>    // pthread_mutex*
 
+#include <sys/stat.h>   // fstat
 #include <zstd.h>
 
 #include "zseek.h"
@@ -24,7 +25,7 @@ struct zseek_frame_cache {
 };
 
 struct zseek_reader {
-    FILE *fin;
+    zseek_read_file_t user_file;
     ZSTD_DCtx *dctx;    // TODO: If there's contention, use one dctx per read().
     pthread_rwlock_t lock;
 
@@ -33,7 +34,56 @@ struct zseek_reader {
     size_t pos;
 };
 
-zseek_reader_t *zseek_reader_open(const char *filename,
+static ssize_t default_pread(void *data, size_t size, size_t offset,
+    void *user_data)
+{
+    FILE *fin = user_data;
+
+    // Save current file position
+    long prev_pos = ftell(fin);
+    if (prev_pos == -1) {
+        // perror("get file position");
+        return -1;
+    }
+
+    if (fseek(fin, offset, SEEK_SET) == -1) {
+        // perror("set file position");
+        return -1;
+    }
+    size_t _read = fread(data, 1, size, fin);
+    if (_read != size && ferror(fin)) {
+        // perror("read from file");
+        return -1;
+    }
+
+    // Restore previous file position
+    if (fseek(fin, prev_pos, SEEK_SET) == -1) {
+        // perror("restore file position");
+        return -1;
+    }
+
+    return _read;
+}
+
+static ssize_t default_fsize(void *user_data)
+{
+    FILE *f = user_data;
+    int fd = fileno(f);
+    if (fd == -1) {
+        // perror("get file descriptor");
+        return -1;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) == -1) {
+        // perror("get file size");
+        return -1;
+    }
+
+    return st.st_size;
+}
+
+zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_reader_t *reader = malloc(sizeof(*reader));
@@ -55,24 +105,18 @@ zseek_reader_t *zseek_reader_open(const char *filename,
         set_error_with_errno(errbuf, "initialize lock", pr);
         goto fail_w_dctx;
     }
-    FILE *fin = fopen(filename, "rb");
-    if (!fin) {
-        set_error_with_errno(errbuf, "open file", errno);
-        goto fail_w_lock;
-    }
-    reader->fin = fin;
 
-    ZSTD_seekTable *st = read_seek_table(fin);
+    reader->user_file = user_file;
+
+    ZSTD_seekTable *st = read_seek_table(user_file);
     if (!st) {
         set_error(errbuf, "read_seek_table failed");
-        goto fail_w_fin;
+        goto fail_w_lock;
     }
     reader->st = st;
 
     return reader;
 
-fail_w_fin:
-    fclose(fin);
 fail_w_lock:
     pthread_rwlock_destroy(&reader->lock);
 fail_w_dctx:
@@ -83,14 +127,16 @@ fail:
     return NULL;
 }
 
+zseek_reader_t *zseek_reader_open_default(FILE *cfile,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    zseek_read_file_t user_file = {cfile, default_pread, default_fsize};
+    return zseek_reader_open(user_file, errbuf);
+}
+
 bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     bool is_error = false;
-
-    if (fclose(reader->fin) == EOF) {
-        set_error_with_errno(errbuf, "close file", errno);
-        is_error = true;
-    }
 
     int pr = pthread_rwlock_destroy(&reader->lock);
     if (pr && !is_error) {
@@ -149,11 +195,15 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
                 set_error_with_errno(errbuf, "allocate buffer", errno);
                 goto fail_w_lock;
             }
-            if (fread(cbuf, 1, cbuf_len, reader->fin) != cbuf_len) {
-                if (feof(reader->fin))
+            off_t frame_offset = frame_offset_c(reader->st, frame_idx);
+            ssize_t _read = reader->user_file.pread(cbuf, cbuf_len,
+                (size_t)frame_offset, reader->user_file.user_data);
+            if (_read != (ssize_t)cbuf_len) {
+                if (_read >= 0)
                     set_error(errbuf, "unexpected EOF");
                 else
-                    set_error_with_errno(errbuf, "read file", errno);
+                    // TODO OPT: Use errno if user_file.pread sets it
+                    set_error(errbuf, "read file failed");
                 goto fail_w_cbuf;
             }
 

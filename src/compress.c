@@ -16,7 +16,7 @@
 #define COMPRESSION_STRATEGY ZSTD_fast
 
 struct zseek_writer {
-    FILE *fout;
+    zseek_write_file_t user_file;
     ZSTD_CCtx *cctx;
     pthread_mutex_t lock;
 
@@ -26,7 +26,17 @@ struct zseek_writer {
     ZSTD_frameLog *fl;
 };
 
-zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
+static bool default_write(const void *data, size_t size, void *user_data)
+{
+    FILE *fout = user_data;
+    if (fwrite(data, 1, size, fout) != size) {
+        // perror("write to file");
+        return false;
+    }
+    return true;
+}
+
+zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_writer_t *writer = malloc(sizeof(*writer));
@@ -79,17 +89,10 @@ zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
     }
     writer->fl = fl;
 
-    FILE *fout = fopen(filename, "wbx");
-    if (!fout) {
-        set_error_with_errno(errbuf, "open file", errno);
-        goto fail_w_framelog;
-    }
-    writer->fout = fout;
+    writer->user_file = user_file;
 
     return writer;
 
-fail_w_framelog:
-    ZSTD_seekable_freeFrameLog(fl);
 fail_w_lock:
     pthread_mutex_destroy(&writer->lock);
 fail_w_cctx:
@@ -98,6 +101,13 @@ fail_w_writer:
     free(writer);
 fail:
     return NULL;
+}
+
+zseek_writer_t *zseek_writer_open_default(FILE *cfile, int nb_workers,
+    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    zseek_write_file_t user_file = {cfile, default_write};
+    return zseek_writer_open(user_file, nb_workers, min_frame_size, errbuf);
 }
 
 /**
@@ -132,9 +142,11 @@ static bool end_frame(zseek_writer_t *writer)
         writer->frame_cm += buffout.pos;
 
         // Write output
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
-        if (written < buffout.pos) {
-            // perror("write to file");
+        if (!writer->user_file.write(buffout.dst, buffout.pos,
+            writer->user_file.user_data)) {
+
+            // TODO OPT: Use errno if user_file.write sets it
+            // fprintf(stderr, "write to file failed");
             goto fail_w_buf;
         }
     } while (rem > 0);
@@ -190,18 +202,15 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
             is_error = true;
         }
 
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
-        if (written < buffout.pos && !is_error) {
-            set_error_with_errno(errbuf, "write to file", errno);
+        bool written = writer->user_file.write(buffout.dst, buffout.pos,
+            writer->user_file.user_data);
+        if (!written && !is_error) {
+            // TODO OPT: Use errno if user_file.write sets it
+            set_error(errbuf, "write to file failed");
             is_error = true;
         }
     } while (rem > 0);
     free(buf);
-
-    if (fclose(writer->fout) == EOF && !is_error) {
-        set_error_with_errno(errbuf, "close file", errno);
-        is_error = true;
-    }
 
     size_t r = ZSTD_seekable_freeFrameLog(writer->fl);
     if (ZSTD_isError(r) && !is_error) {
@@ -268,9 +277,10 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
         writer->frame_cm += buffout.pos;
 
         // Write output
-        size_t written = fwrite(buffout.dst, 1, buffout.pos, writer->fout);
-        if (written < buffout.pos) {
-            set_error_with_errno(errbuf, "write to file", errno);
+        if (!writer->user_file.write(buffout.dst, buffout.pos,
+                writer->user_file.user_data)) {
+            // TODO OPT: Use errno if user_file.pread sets it
+            set_error(errbuf, "write to file failed");
             goto fail_w_bout;
         }
     } while (buffin.pos < buffin.size);
