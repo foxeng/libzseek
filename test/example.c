@@ -19,17 +19,23 @@ static bool decompress(const char *ufilename, const char *cfilename)
 {
     // TODO: Access randomly, don't just scan.
 
-    FILE *fin = fopen(ufilename, "rb");
-    if (!fin) {
+    FILE *ufile = fopen(ufilename, "rb");
+    if (!ufile) {
         perror("decompress: open uncompressed file");
         goto fail;
     }
 
+    FILE *cfile = fopen(cfilename, "rb");
+    if (!cfile) {
+        perror("decompress: open compressed file");
+        goto fail_w_ufile;
+    }
+
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_reader_t *reader = zseek_reader_open(cfilename, errbuf);
+    zseek_reader_t *reader = zseek_reader_open_default(cfile, errbuf);
     if (!reader) {
         fprintf(stderr, "decompress: zseek_reader_open: %s\n", errbuf);
-        goto fail_w_fin;
+        goto fail_w_cfile;
     }
 
     size_t buf_len = BUF_SIZE;
@@ -47,8 +53,8 @@ static bool decompress(const char *ufilename, const char *cfilename)
 
     size_t offset = 0;
     do {
-        size_t uread = fread(ubuf, 1, buf_len, fin);
-        if (uread < buf_len && ferror(fin)) {
+        size_t uread = fread(ubuf, 1, buf_len, ufile);
+        if (uread < buf_len && ferror(ufile)) {
             perror("decompress: read uncompressed file");
             goto fail_w_dbuf;
         }
@@ -76,7 +82,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
                 offset);
             goto fail_w_dbuf;
         }
-    } while (!feof(fin));
+    } while (!feof(ufile));
 
 
     free(dbuf);
@@ -84,11 +90,16 @@ static bool decompress(const char *ufilename, const char *cfilename)
 
     if (!zseek_reader_close(reader, errbuf)) {
         fprintf(stderr, "decompress: zseek_reader_close: %s\n", errbuf);
-        goto fail_w_fin;
+        goto fail_w_cfile;
     }
 
-    if (fclose(fin) == EOF) {
-        perror("decompress: close input file");
+    if (fclose(cfile) == EOF) {
+        perror("decompress: close compressed file");
+        goto fail_w_ufile;
+    }
+
+    if (fclose(ufile) == EOF) {
+        perror("decompress: close uncompressed file");
         goto fail;
     }
 
@@ -100,8 +111,10 @@ fail_w_ubuf:
     free(ubuf);
 fail_w_reader:
     zseek_reader_close(reader, errbuf);
-fail_w_fin:
-    fclose(fin);
+fail_w_cfile:
+    fclose(cfile);
+fail_w_ufile:
+    fclose(ufile);
 fail:
     return false;
 }
@@ -111,18 +124,24 @@ fail:
  */
 static bool compress(const char *ufilename, const char *cfilename)
 {
-    FILE *fin = fopen(ufilename, "rb");
-    if (!fin) {
+    FILE *ufile = fopen(ufilename, "rb");
+    if (!ufile) {
         perror("compress: open uncompressed file");
         goto fail;
     }
 
+    FILE *cfile = fopen(cfilename, "wb");
+    if (!cfile) {
+        perror("compress: open compressed file");
+        goto fail_w_ufile;
+    }
+
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_writer_t *writer = zseek_writer_open(cfilename, NB_WORKERS,
+    zseek_writer_t *writer = zseek_writer_open_default(cfile, NB_WORKERS,
         MIN_FRAME_SIZE, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
-        goto fail_w_fin;
+        goto fail_w_cfile;
     }
 
     size_t buf_len = BUF_SIZE;
@@ -134,8 +153,8 @@ static bool compress(const char *ufilename, const char *cfilename)
 
 
     do {
-        size_t uread = fread(buf, 1, buf_len, fin);
-        if (uread < buf_len && ferror(fin)) {
+        size_t uread = fread(buf, 1, buf_len, ufile);
+        if (uread < buf_len && ferror(ufile)) {
             perror("compress: read file");
             goto fail_w_buf;
         }
@@ -144,18 +163,23 @@ static bool compress(const char *ufilename, const char *cfilename)
             fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
             goto fail_w_buf;
         }
-    } while (!feof(fin));
+    } while (!feof(ufile));
 
 
     free(buf);
 
     if (!zseek_writer_close(writer, errbuf)) {
         fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
-        goto fail_w_fin;
+        goto fail_w_cfile;
     }
 
-    if (fclose(fin) == EOF) {
-        perror("compress: close input file");
+    if (fclose(cfile) == EOF) {
+        perror("compress: close compressed file");
+        goto fail_w_ufile;
+    }
+
+    if (fclose(ufile) == EOF) {
+        perror("compress: close uncompressed file");
         goto fail;
     }
 
@@ -165,8 +189,10 @@ fail_w_buf:
     free(buf);
 fail_w_writer:
     zseek_writer_close(writer, errbuf);
-fail_w_fin:
-    fclose(fin);
+fail_w_cfile:
+    fclose(cfile);
+fail_w_ufile:
+    fclose(ufile);
 fail:
     return false;
 }

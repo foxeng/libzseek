@@ -25,18 +25,16 @@
  * their metadata to the end of the file,
  * so that we can eliminate this feature.
  *
- * Should have a pluggable downstream writer and reader,
- * instead of doing directly IO on the file, because we
- * have a custom Linux specific high performance one that looks like
- * this:
- *  bool buffered_write(const void *data, size_t size, *user_data)
- *  bool buffered_read(void *data, size_t size, *user_data)
- *
  * @{
  */
 
+#ifndef ZSEEK_H
+#define ZSEEK_H
+
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdio.h>
+
 #include <sys/types.h>
 
 /**
@@ -48,23 +46,74 @@
  * Pluggable write handler
  *
  * @param data
+ *  The data to write to the file
  * @param size
+ *  The size of @p data
  * @param user_data
- * @todo add a setter for this, or pass in constructor
+ *  The user-specified file handle
+ *
+ * @retval true
+ *  On success. @p size bytes from @p data written to the file.
+ * @retval false
+ *  On error
  */
-// typedef bool (*zseek_write_t)(const void *data, size_t size, *user_data);
+typedef bool (*zseek_write_t)(const void *data, size_t size, void *user_data);
+
+/**
+ * User-defined file supporting writes
+ */
+typedef struct {
+    /** File handle to use when calling below functions */
+    void *user_data;
+    /** Write function */
+    zseek_write_t write;
+} zseek_write_file_t;
 
 /**
  * Pluggable read handler
  *
  * @param[out] data
+ *  The destination for the data read
  * @param size
+ *  The number of bytes to read
  * @param offset
+ *  The file offset to read from
  * @param user_data
- * @todo add a setter for this, or pass in constructor
+ *  The user-specified file handle
+ *
+ * @retval N>=0
+ *  Number of bytes read and stored in @p data. May be less than @p size if EOF
+ *  was encountered.
+ * @retval <0
+ *  On error
  */
-// typedef ssize_t (*zseek_pread_t)(void *data, size_t size, size_t offset,
-//     *user_data);
+typedef ssize_t (*zseek_pread_t)(void *data, size_t size, size_t offset,
+    void *user_data);
+
+/**
+ * Pluggable file size handler
+ *
+ * @param user_data
+ *  The user-specified file handle
+ *
+ * @retval N>=0
+ *  File size, in bytes
+ * @retval <0
+ *  On error
+ */
+typedef ssize_t (*zseek_fsize_t)(void *user_data);
+
+/**
+ * User-defined file supporting reads
+ */
+typedef struct {
+    /** File handle to use when calling below functions */
+    void *user_data;
+    /** Read function */
+    zseek_pread_t pread;
+    /** File size function */
+    zseek_fsize_t fsize;
+} zseek_read_file_t;
 
 /**
  * Handle to a compressed file for sequential writes
@@ -79,8 +128,8 @@ typedef struct zseek_reader zseek_reader_t;
 /**
  * Creates a compressed file for sequential writes
  *
- * @param filename
- *	Name of the file to create. The file must not exist
+ * @param user_file
+ *	File to write compressed data to
  * @param nb_workers
  *	Number of worker threads to use for compression
  * @param min_frame_size
@@ -93,7 +142,27 @@ typedef struct zseek_reader zseek_reader_t;
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open(const char *filename, int nb_workers,
+zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
+    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
+ * Creates a compressed file for sequential writes, with default file I/O
+ *
+ * @param cfile
+ *	File to write compressed data to
+ * @param nb_workers
+ *	Number of worker threads to use for compression
+ * @param min_frame_size
+ *	Minimum (uncompressed) frame size
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval writer
+ *  Handle to perform writes
+ * @retval NULL
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
+ */
+zseek_writer_t *zseek_writer_open_default(FILE *cfile, int nb_workers,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -140,7 +209,10 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
- * @param filename
+ * Creates a reader for random access reads
+ *
+ * @param user_file
+ *  File to read compressed data from
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -149,7 +221,23 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open(const char *filename,
+zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
+ * Creates a reader for random access reads, with default file I/O
+ *
+ * @param cfile
+ *  File to read compressed data from
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval reader
+ *  Handle to perform reads
+ * @retval NULL
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
+ */
+zseek_reader_t *zseek_reader_open_default(FILE *cfile,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -182,7 +270,7 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
- * @retval N
+ * @retval N>=0
  *	Number of bytes read
  * @retval -1
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
@@ -209,6 +297,8 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  */
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+#endif
 
 /**
  * @}
