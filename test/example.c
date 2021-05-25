@@ -71,8 +71,8 @@ static bool decompress(const char *ufilename, const char *cfilename)
             }
         }
 
-        if (memcmp(ubuf, dbuf, buf_len)) {
-            printf("FAIL: decompressed differs somewhere after byte %zu\n",
+        if (memcmp(ubuf, dbuf, uread)) {
+            printf("FAIL: decompressed differs somewhere before byte %zu\n",
                 offset);
             goto fail_w_dbuf;
         }
