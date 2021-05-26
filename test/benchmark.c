@@ -262,20 +262,14 @@ int main(int argc, char *argv[])
     }
 
     const char *ufilename = argv[1];
-    char *cfilename = malloc(strlen(ufilename) + 5);
-    if (!cfilename) {
-        perror("allocate output filename");
-        goto fail;
-    }
-    strcpy(cfilename, ufilename);
-    strcat(cfilename, ".zst");
+    const char *cfilename = "/dev/null";
 
     int nb_workers = atoi(argv[2]);
     size_t frame_size = atoi(argv[3]) * (1 << 20);
 
     results_t *res = compress(ufilename, cfilename, nb_workers, frame_size);
     if (!res)
-        goto fail_w_cfilename;
+        return 1;
 
     bool terse = false;
     if (argc > 4 && strcmp(argv[4], "-t") == 0) {
@@ -284,12 +278,4 @@ int main(int argc, char *argv[])
     report(res, nb_workers, terse);
 
     results_free(res);
-    free(cfilename);
-
-    return 0;
-
-fail_w_cfilename:
-    free(cfilename);
-fail:
-    return 1;
 }

@@ -27,8 +27,7 @@ Elementary test to compress, decomporess and validate a user-specified file. See
 
 Elementary **compression-only** benchmark on a user-specified file. Allows
 controlling various parameters and measures time and resource usage. Tries to
-eliminate I/O variability by **loading the whole file to memory** at startup
-(the output file is written to the file system. Consider using a ramdisk).
+eliminate I/O variability by **loading the whole file to memory** at startup.
 See `test/benchmark.c`.
 
 For a single run:
