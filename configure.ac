@@ -6,7 +6,7 @@ AC_INIT([libzseek], [0.2.0], [Fotis Xenakis <foxen@windowslive.com>])
 #   2. If interfaces have been added/removed/changed, increment current and set revision to 0.
 #   3. If interfaces have been added, increment age.
 #   4. If interfaces have been removed/changed, set age to 0.
-AC_SUBST(LIBZSEEK_CURRENT, 1)
+AC_SUBST(LIBZSEEK_CURRENT, 2)
 AC_SUBST(LIBZSEEK_REVISION, 0)
 AC_SUBST(LIBZSEEK_AGE, 0)
 
