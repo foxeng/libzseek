@@ -36,6 +36,7 @@
 #include <stdio.h>
 
 #include <sys/types.h>
+#include <sched.h>
 
 /**
  * Error buffer size
@@ -116,6 +117,18 @@ typedef struct {
 } zseek_read_file_t;
 
 /**
+ * Compression multi-threading controls
+ */
+typedef struct {
+    /** Number of worker threads */
+    int nb_workers;
+    /** The size of @ref cpuset. See pthread_setaffinity_np (3) */
+    size_t cpusetsize;
+    /** The CPU set to confine the workers to. See pthread_setaffinity_np (3) */
+    cpu_set_t *cpuset;
+} zseek_mt_param_t;
+
+/**
  * Handle to a compressed file for sequential writes
  */
 typedef struct zseek_writer zseek_writer_t;
@@ -130,8 +143,9 @@ typedef struct zseek_reader zseek_reader_t;
  *
  * @param user_file
  *	File to write compressed data to
- * @param nb_workers
- *	Number of worker threads to use for compression
+ * @param mt
+ *	Multi-threading details. If @p mt.cpuset is @a NULL, CPU affinity is
+ *  inherited as-is.
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
  * @param[out] errbuf
@@ -142,16 +156,17 @@ typedef struct zseek_reader zseek_reader_t;
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
-    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
+zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
+    zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a compressed file for sequential writes, with default file I/O
  *
  * @param cfile
  *	File to write compressed data to
- * @param nb_workers
- *	Number of worker threads to use for compression
+ * @param mt
+ *	Multi-threading details. If @p mt.cpuset is @a NULL, CPU affinity is
+ *  inherited as-is.
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
  * @param[out] errbuf
@@ -162,7 +177,7 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open_default(FILE *cfile, int nb_workers,
+zseek_writer_t *zseek_writer_open_default(FILE *cfile, zseek_mt_param_t mt,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**

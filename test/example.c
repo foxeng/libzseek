@@ -137,7 +137,8 @@ static bool compress(const char *ufilename, const char *cfilename)
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_writer_t *writer = zseek_writer_open_default(cfile, NB_WORKERS,
+    zseek_mt_param_t mt = {.nb_workers = NB_WORKERS};
+    zseek_writer_t *writer = zseek_writer_open_default(cfile, mt,
         MIN_FRAME_SIZE, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
