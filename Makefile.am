@@ -9,7 +9,7 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libzseek.pc
 
 AM_CFLAGS = $(WARN_CFLAGS) $(PTHREAD_CFLAGS)
-AM_CPPFLAGS = -I$(top_srcdir)/src
+AM_CPPFLAGS = -I$(top_srcdir)/src -include config.h
 
 lib_LTLIBRARIES = libzseek.la
 

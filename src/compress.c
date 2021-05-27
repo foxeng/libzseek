@@ -4,7 +4,7 @@
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // errno
 #include <string.h>     // memset
-#include <pthread.h>    // pthread_mutex*
+#include <pthread.h>    // pthread_mutex*, pthread_setaffinity_np
 
 #include <zstd.h>
 
@@ -36,8 +36,8 @@ static bool default_write(const void *data, size_t size, void *user_data)
     return true;
 }
 
-zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
-    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
+    zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_writer_t *writer = malloc(sizeof(*writer));
     if (!writer) {
@@ -65,12 +65,51 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
         goto fail_w_cctx;
     }
 
-    if (nb_workers > 1) {
-        r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nb_workers);
+    // Declared here to be in scope at fail_w_cpuset
+    pthread_t self_tid = pthread_self();
+    cpu_set_t prev_cpuset;
+
+    if (mt.nb_workers > 1) {
+        r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, mt.nb_workers);
         if (ZSTD_isError(r)) {
             set_error(errbuf, "%s: %s", "set nb of workers",
                 ZSTD_getErrorName(r));
             goto fail_w_cctx;
+        }
+
+        if (mt.cpuset) {
+            // Save current cpu set
+            int pr = pthread_getaffinity_np(self_tid, sizeof(prev_cpuset),
+                &prev_cpuset);
+            if (pr) {
+                set_error_with_errno(errbuf, "get thread affinity", pr);
+                goto fail_w_cctx;
+            }
+
+            // Set requested cpu set
+            pthread_setaffinity_np(self_tid, mt.cpusetsize, mt.cpuset);
+            if (pr) {
+                set_error_with_errno(errbuf, "set thread affinity", pr);
+                goto fail_w_cpuset;
+            }
+
+            // Trigger thread pool creation (as per zstd 1.5.0 at least)
+            ZSTD_inBuffer buffin = {NULL, 0, 0};
+            ZSTD_outBuffer buffout = {NULL, 0, 0};
+            r = ZSTD_compressStream2(cctx, &buffout, &buffin, ZSTD_e_continue);
+            if (ZSTD_isError(r)) {
+                set_error(errbuf, "%s: %s", "create threads",
+                    ZSTD_getErrorName(r));
+                goto fail_w_cpuset;
+            }
+
+            // Reset previous cpu set
+            pr = pthread_setaffinity_np(self_tid, sizeof(prev_cpuset),
+                &prev_cpuset);
+            if (pr) {
+                set_error_with_errno(errbuf, "reset thread affinity", pr);
+                goto fail_w_cctx;
+            }
         }
     }
     writer->cctx = cctx;
@@ -95,6 +134,9 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file, int nb_workers,
 
 fail_w_lock:
     pthread_mutex_destroy(&writer->lock);
+fail_w_cpuset:
+    if (mt.cpuset)
+        pthread_setaffinity_np(self_tid, sizeof(prev_cpuset), &prev_cpuset);
 fail_w_cctx:
     ZSTD_freeCCtx(cctx);
 fail_w_writer:
@@ -103,11 +145,11 @@ fail:
     return NULL;
 }
 
-zseek_writer_t *zseek_writer_open_default(FILE *cfile, int nb_workers,
+zseek_writer_t *zseek_writer_open_default(FILE *cfile, zseek_mt_param_t mt,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_write_file_t user_file = {cfile, default_write};
-    return zseek_writer_open(user_file, nb_workers, min_frame_size, errbuf);
+    return zseek_writer_open(user_file, mt, min_frame_size, errbuf);
 }
 
 /**
