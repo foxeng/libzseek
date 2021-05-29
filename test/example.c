@@ -32,7 +32,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_reader_t *reader = zseek_reader_open_default(cfile, errbuf);
+    zseek_reader_t *reader = zseek_reader_open_default(cfile, 1, errbuf);
     if (!reader) {
         fprintf(stderr, "decompress: zseek_reader_open: %s\n", errbuf);
         goto fail_w_cfile;

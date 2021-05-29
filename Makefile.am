@@ -24,7 +24,9 @@ libzseek_la_SOURCES = src/seek_table.h \
 		      src/decompress.c \
 		      src/seek_table.c \
 		      src/common.h \
-		      src/common.c
+		      src/common.c \
+			  src/cache.h \
+			  src/cache.c
 
 include_HEADERS = src/zseek.h
 
