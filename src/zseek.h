@@ -228,6 +228,8 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  *
  * @param user_file
  *  File to read compressed data from
+ * @param cache_size
+ *  Size of decompressed frames to cache
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -237,13 +239,15 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
-    char errbuf[ZSEEK_ERRBUF_SIZE]);
+    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a reader for random access reads, with default file I/O
  *
  * @param cfile
  *  File to read compressed data from
+ * @param cache_size
+ *  Size of decompressed frames to cache
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -252,7 +256,7 @@ zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open_default(FILE *cfile,
+zseek_reader_t *zseek_reader_open_default(FILE *cfile, size_t cache_size,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
