@@ -30,10 +30,14 @@ libzseek_la_SOURCES = src/seek_table.h \
 
 include_HEADERS = src/zseek.h
 
-noinst_PROGRAMS = benchmark example
+noinst_PROGRAMS = benchmark example test_cache
 
 benchmark_SOURCES = test/benchmark.c $(HEADERS)
 benchmark_LDADD = $(ZSTD_LIBS) -lm $(top_builddir)/libzseek.la
 
 example_SOURCES = test/example.c $(HEADERS)
 example_LDADD = $(ZSTD_LIBS) -lm $(top_builddir)/libzseek.la
+
+test_cache_SOURCES = test/test_cache.c $(top_builddir)/src/cache.h
+test_cache_CFLAGS = @CHECK_CFLAGS@
+test_cache_LDADD = -lm $(top_builddir)/libzseek.la @CHECK_LIBS@
