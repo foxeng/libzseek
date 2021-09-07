@@ -203,7 +203,7 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
  * The data chunks passed can be small, they will be coalesced
  * internally for efficient compression and IO.
  *
- * This is safe to call concurrently. It will not, in general, return
+ * This is \e not safe to call concurrently. It will not, in general, return
  * immediately.
  *
  * @param writer
