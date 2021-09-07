@@ -4,7 +4,7 @@
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // errno
 #include <string.h>     // memset
-#include <pthread.h>    // pthread_mutex*, pthread_setaffinity_np
+#include <pthread.h>    // pthread_setaffinity_np
 
 #include <zstd.h>
 
@@ -18,7 +18,6 @@
 struct zseek_writer {
     zseek_write_file_t user_file;
     ZSTD_CCtx *cctx;
-    pthread_mutex_t lock;
 
     size_t frame_uc;    // Current frame bytes (uncompressed)
     size_t frame_cm;    // Current frame bytes (compressed)
@@ -115,16 +114,10 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
     writer->cctx = cctx;
     writer->min_frame_size = min_frame_size;
 
-    int pr = pthread_mutex_init(&writer->lock, NULL);
-    if (pr) {
-        set_error_with_errno(errbuf, "initialize mutex", pr);
-        goto fail_w_cctx;
-    }
-
     ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(0);
     if (!fl) {
         set_error(errbuf, "framelog creation failed");
-        goto fail_w_lock;
+        goto fail_w_cpuset;
     }
     writer->fl = fl;
 
@@ -132,8 +125,6 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
 
     return writer;
 
-fail_w_lock:
-    pthread_mutex_destroy(&writer->lock);
 fail_w_cpuset:
     if (mt.cpuset)
         pthread_setaffinity_np(self_tid, sizeof(prev_cpuset), &prev_cpuset);
@@ -153,8 +144,7 @@ zseek_writer_t *zseek_writer_open_default(FILE *cfile, zseek_mt_param_t mt,
 }
 
 /**
- * Flush, close and write current frame. This will block. Should be called with
- * the writer lock held.
+ * Flush, close and write current frame. This will block.
  */
 static bool end_frame(zseek_writer_t *writer)
 {
@@ -260,12 +250,6 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
         is_error = true;
     }
 
-    int pr = pthread_mutex_destroy(&writer->lock);
-    if (pr && !is_error) {
-        set_error_with_errno(errbuf, "destroy mutex", pr);
-        is_error = true;
-    }
-
     r = ZSTD_freeCCtx(writer->cctx);
     if (ZSTD_isError(r) && !is_error) {
         set_error(errbuf, "%s: %s", "free context", ZSTD_getErrorName(r));
@@ -280,19 +264,13 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    int pr = pthread_mutex_lock(&writer->lock);
-    if (pr) {
-        set_error_with_errno(errbuf, "lock mutex", pr);
-        goto fail;
-    }
-
     if (writer->frame_uc >= writer->min_frame_size) {
         // End current frame
         // NOTE: This blocks, flushing data dispatched for compression in
         // previous calls.
         if (!end_frame(writer)) {
             set_error(errbuf, "end_frame failed");
-            goto fail_w_lock;
+            goto fail;
         }
     }
 
@@ -301,7 +279,7 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     void *bout = malloc(bout_len);
     if (!bout) {
         set_error_with_errno(errbuf, "allocate output buffer", errno);
-        goto fail_w_lock;
+        goto fail;
     }
 
     ZSTD_inBuffer buffin = {buf, len, 0};
@@ -332,18 +310,10 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
 
     free(bout);
 
-    pr = pthread_mutex_unlock(&writer->lock);
-    if (pr) {
-        set_error_with_errno(errbuf, "unlock mutex", pr);
-        goto fail;
-    }
-
     return true;
 
 fail_w_bout:
     free(bout);
-fail_w_lock:
-    pthread_mutex_unlock(&writer->lock);
 fail:
     return false;
 }
