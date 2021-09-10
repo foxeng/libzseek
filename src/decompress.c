@@ -76,7 +76,7 @@ static ssize_t default_fsize(void *user_data)
     return st.st_size;
 }
 
-zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
+zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
     size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_reader_t *reader = malloc(sizeof(*reader));
@@ -129,11 +129,11 @@ fail:
     return NULL;
 }
 
-zseek_reader_t *zseek_reader_open_default(FILE *cfile, size_t cache_size,
+zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_read_file_t user_file = {cfile, default_pread, default_fsize};
-    return zseek_reader_open(user_file, cache_size, errbuf);
+    return zseek_reader_open_full(user_file, cache_size, errbuf);
 }
 
 bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])

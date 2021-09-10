@@ -35,7 +35,7 @@ static bool default_write(const void *data, size_t size, void *user_data)
     return true;
 }
 
-zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
+zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
     zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_writer_t *writer = malloc(sizeof(*writer));
@@ -136,11 +136,11 @@ fail:
     return NULL;
 }
 
-zseek_writer_t *zseek_writer_open_default(FILE *cfile, zseek_mt_param_t mt,
+zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_mt_param_t mt,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_write_file_t user_file = {cfile, default_write};
-    return zseek_writer_open(user_file, mt, min_frame_size, errbuf);
+    return zseek_writer_open_full(user_file, mt, min_frame_size, errbuf);
 }
 
 /**
