@@ -15,16 +15,6 @@
  * The block sizes are tuned to achieve high throughput write without
  * prohibitive read amplification.
  *
- * Additional considerations:
- *
- * An initial segment of the file is uncompressed,
- * and can be used to store metadata by overwriting in-place by the caller
- * after the compression is concluded.
- * This is represented by the start_offset parameter.
- * Separately, we are looking into changing the potential users to append
- * their metadata to the end of the file,
- * so that we can eliminate this feature.
- *
  * @{
  */
 
