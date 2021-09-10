@@ -181,8 +181,8 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
     zseek_mt_param_t mt = {.nb_workers = nb_workers};
-    zseek_writer_t *writer = zseek_writer_open_default(cfile, mt,
-        min_frame_size, errbuf);
+    zseek_writer_t *writer = zseek_writer_open(cfile, mt, min_frame_size,
+        errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         goto fail_w_cfile;

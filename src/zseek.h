@@ -146,7 +146,7 @@ typedef struct zseek_reader zseek_reader_t;
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
+zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
     zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -167,7 +167,7 @@ zseek_writer_t *zseek_writer_open(zseek_write_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open_default(FILE *cfile, zseek_mt_param_t mt,
+zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_mt_param_t mt,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -228,7 +228,7 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
+zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
     size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -246,7 +246,7 @@ zseek_reader_t *zseek_reader_open(zseek_read_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open_default(FILE *cfile, size_t cache_size,
+zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**

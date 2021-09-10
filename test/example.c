@@ -32,7 +32,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_reader_t *reader = zseek_reader_open_default(cfile, 1, errbuf);
+    zseek_reader_t *reader = zseek_reader_open(cfile, 1, errbuf);
     if (!reader) {
         fprintf(stderr, "decompress: zseek_reader_open: %s\n", errbuf);
         goto fail_w_cfile;
@@ -138,8 +138,8 @@ static bool compress(const char *ufilename, const char *cfilename)
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
     zseek_mt_param_t mt = {.nb_workers = NB_WORKERS};
-    zseek_writer_t *writer = zseek_writer_open_default(cfile, mt,
-        MIN_FRAME_SIZE, errbuf);
+    zseek_writer_t *writer = zseek_writer_open(cfile, mt, MIN_FRAME_SIZE,
+        errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         goto fail_w_cfile;
