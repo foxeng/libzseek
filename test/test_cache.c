@@ -9,14 +9,14 @@
 START_TEST(test_cache_new_null)
 {
     zseek_cache_t *cache = zseek_cache_new(0);
-    ck_assert_ptr_null(cache);
+    ck_assert(cache == NULL);
 }
 END_TEST
 
 START_TEST(test_cache_new)
 {
     zseek_cache_t *cache = zseek_cache_new(3);
-    ck_assert_ptr_nonnull(cache);
+    ck_assert(cache != NULL);
 
     zseek_cache_free(cache);
 }
@@ -76,7 +76,7 @@ END_TEST
 START_TEST(test_cache_find_null)
 {
     zseek_frame_t frame = zseek_cache_find(NULL, 0);
-    ck_assert_ptr_null(frame.data);
+    ck_assert(frame.data == NULL);
 }
 END_TEST
 
@@ -86,7 +86,7 @@ START_TEST(test_cache_find_empty)
     ck_assert_msg(cache != NULL, "failed to create cache");
 
     zseek_frame_t found = zseek_cache_find(cache, 1);
-    ck_assert_ptr_null(found.data);
+    ck_assert(found.data == NULL);
 
     zseek_cache_free(cache);
 }
@@ -102,9 +102,9 @@ START_TEST(test_cache_find_present)
     ck_assert_msg(zseek_cache_insert(cache, frame), "failed to insert frame");
 
     zseek_frame_t found = zseek_cache_find(cache, 1);
-    ck_assert_ptr_eq(found.data, frame.data);
-    ck_assert_uint_eq(found.idx, frame.idx);
-    ck_assert_uint_eq(found.len, frame.len);
+    ck_assert(found.data == frame.data);
+    ck_assert(found.idx == frame.idx);
+    ck_assert(found.len == frame.len);
 
     zseek_cache_free(cache);
 }
@@ -126,7 +126,7 @@ START_TEST(test_cache_find_absent)
         "failed to insert frame %zu", frame.idx);
 
     zseek_frame_t found = zseek_cache_find(cache, 3);
-    ck_assert_ptr_null(found.data);
+    ck_assert(found.data == NULL);
 
     zseek_cache_free(cache);
 }
@@ -146,16 +146,17 @@ START_TEST(test_cache_replace)
     }
 
     zseek_frame_t found = zseek_cache_find(cache, 0);
-    ck_assert_ptr_null(found.data);
+    ck_assert(found.data == NULL);
     for (int i = 1; i < 4; i++) {
         found = zseek_cache_find(cache, i);
-        ck_assert_ptr_eq(found.data, frames[i].data);
-        ck_assert_uint_eq(found.idx, frames[i].idx);
-        ck_assert_uint_eq(found.len, frames[i].len);
+        ck_assert(found.data == frames[i].data);
+        ck_assert(found.idx == frames[i].idx);
+        ck_assert(found.len == frames[i].len);
     }
 
     zseek_cache_free(cache);
 }
+END_TEST
 
 Suite *cache_suite(void)
 {
@@ -190,3 +191,4 @@ int main(void)
 
     return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
+
