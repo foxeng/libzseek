@@ -107,7 +107,14 @@ typedef struct {
 } zseek_read_file_t;
 
 /**
- * Compression multi-threading controls
+ * Supported compression algorithms
+ */
+typedef enum {
+    ZSEEK_ZSTD = 0
+} zseek_compression_type_t;
+
+/**
+ * Compression and multi-threading controls for zstd
  */
 typedef struct {
     /** Number of worker threads */
@@ -116,7 +123,21 @@ typedef struct {
     size_t cpusetsize;
     /** The CPU set to confine the workers to. See pthread_setaffinity_np (3) */
     cpu_set_t *cpuset;
-} zseek_mt_param_t;
+    /** Compression level (default = 3) */
+    int compression_level;
+    /** Compression strategy (default = fast)  */
+    int strategy;
+} zseek_zstd_param_t;
+
+/**
+ * Collection of algorithm specific control options
+ */
+typedef struct {
+    zseek_compression_type_t type;
+    union {
+        zseek_zstd_param_t zstd_params;
+    } params;
+} zseek_compression_param_t;
 
 /**
  * Handle to a compressed file for sequential writes
@@ -133,9 +154,9 @@ typedef struct zseek_reader zseek_reader_t;
  *
  * @param user_file
  *	File to write compressed data to
- * @param mt
- *	Multi-threading details. If @p mt.cpuset is @a NULL, CPU affinity is
- *  inherited as-is.
+ * @param zsp
+ *	Compression tunables and multi-threading controls.
+ *	If @a NULL defaults are applied
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
  * @param[out] errbuf
@@ -147,16 +168,17 @@ typedef struct zseek_reader zseek_reader_t;
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-    zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
+    zseek_compression_param_t *zsp, size_t min_frame_size,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a compressed file for sequential writes, with default file I/O
  *
  * @param cfile
  *	File to write compressed data to
- * @param mt
- *	Multi-threading details. If @p mt.cpuset is @a NULL, CPU affinity is
- *  inherited as-is.
+ * @param zsp
+ *	Compression tunables and multi-threading controls.
+ *	If @a NULL defaults are applied
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
  * @param[out] errbuf
@@ -167,7 +189,7 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_mt_param_t mt,
+zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
