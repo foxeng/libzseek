@@ -12,9 +12,6 @@
 #include "seek_table.h"
 #include "common.h"
 
-#define COMPRESSION_LEVEL ZSTD_CLEVEL_DEFAULT
-#define COMPRESSION_STRATEGY ZSTD_fast
-
 struct zseek_writer {
     zseek_write_file_t user_file;
     ZSTD_CCtx *cctx;
@@ -36,8 +33,16 @@ static bool default_write(const void *data, size_t size, void *user_data)
 }
 
 zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-    zseek_mt_param_t mt, size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+	zseek_compression_param_t* zsp, size_t min_frame_size,
+	char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    int compression_level = ZSTD_CLEVEL_DEFAULT;
+    ZSTD_strategy strategy = ZSTD_fast;
+    if (zsp) {
+        compression_level = zsp->params.zstd_params.compression_level;
+        strategy = zsp->params.zstd_params.strategy;
+    }
+
     zseek_writer_t *writer = malloc(sizeof(*writer));
     if (!writer) {
         set_error_with_errno(errbuf, "allocate writer", errno);
@@ -51,14 +56,14 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
         goto fail_w_writer;
     }
     size_t r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel,
-        COMPRESSION_LEVEL);
+        compression_level);
     if (ZSTD_isError(r)) {
         set_error(errbuf, "%s: %s", "set compression level",
             ZSTD_getErrorName(r));
         goto fail_w_cctx;
     }
     // TODO OPT: Don't set strategy?
-    r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, COMPRESSION_STRATEGY);
+    r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, strategy);
     if (ZSTD_isError(r)) {
         set_error(errbuf, "%s: %s", "set strategy", ZSTD_getErrorName(r));
         goto fail_w_cctx;
@@ -68,15 +73,15 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
     pthread_t self_tid = pthread_self();
     cpu_set_t prev_cpuset;
 
-    if (mt.nb_workers > 1) {
-        r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, mt.nb_workers);
+    if (zsp && zsp->params.zstd_params.nb_workers > 1) {
+        r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, zsp->params.zstd_params.nb_workers);
         if (ZSTD_isError(r)) {
             set_error(errbuf, "%s: %s", "set nb of workers",
                 ZSTD_getErrorName(r));
             goto fail_w_cctx;
         }
 
-        if (mt.cpuset) {
+        if (zsp->params.zstd_params.cpuset) {
             // Save current cpu set
             int pr = pthread_getaffinity_np(self_tid, sizeof(prev_cpuset),
                 &prev_cpuset);
@@ -86,7 +91,7 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
             }
 
             // Set requested cpu set
-            pthread_setaffinity_np(self_tid, mt.cpusetsize, mt.cpuset);
+            pthread_setaffinity_np(self_tid, zsp->params.zstd_params.cpusetsize, zsp->params.zstd_params.cpuset);
             if (pr) {
                 set_error_with_errno(errbuf, "set thread affinity", pr);
                 goto fail_w_cpuset;
@@ -126,7 +131,7 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
     return writer;
 
 fail_w_cpuset:
-    if (mt.cpuset)
+    if (zsp && zsp->params.zstd_params.cpuset)
         pthread_setaffinity_np(self_tid, sizeof(prev_cpuset), &prev_cpuset);
 fail_w_cctx:
     ZSTD_freeCCtx(cctx);
@@ -136,11 +141,11 @@ fail:
     return NULL;
 }
 
-zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_mt_param_t mt,
+zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
     size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_write_file_t user_file = {cfile, default_write};
-    return zseek_writer_open_full(user_file, mt, min_frame_size, errbuf);
+    return zseek_writer_open_full(user_file, zsp, min_frame_size, errbuf);
 }
 
 /**

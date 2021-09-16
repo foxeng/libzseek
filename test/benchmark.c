@@ -180,8 +180,11 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_mt_param_t mt = {.nb_workers = nb_workers};
-    zseek_writer_t *writer = zseek_writer_open(cfile, mt, min_frame_size,
+    zseek_compression_param_t param = { .type = ZSEEK_ZSTD,
+        .params.zstd_params.nb_workers = nb_workers,
+        .params.zstd_params.compression_level = 3,
+        .params.zstd_params.strategy = 1 };
+    zseek_writer_t *writer = zseek_writer_open(cfile, &param, min_frame_size,
         errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
