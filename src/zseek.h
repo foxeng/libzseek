@@ -241,7 +241,7 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  * @param user_file
  *  File to read compressed data from
  * @param cache_size
- *  Size of decompressed frames to cache
+ *  Maximum number of decompressed frames to cache
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
