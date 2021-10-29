@@ -6,6 +6,8 @@
 #include <errno.h>      // errno
 #include <string.h>     // memset
 #include <pthread.h>    // pthread_mutex*
+#include <assert.h>     // assert
+#include <endian.h>     // le32toh
 
 #include <sys/stat.h>   // fstat
 #include <zstd.h>
@@ -15,11 +17,15 @@
 #include "common.h"
 #include "cache.h"
 
+#define ZSTD_MAGIC 0xFD2FB528
+#define LZ4_MAGIC 0x184D2204
+
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 struct zseek_reader {
     zseek_read_file_t user_file;
-    ZSTD_DCtx *dctx;    // TODO: If there's contention, use one dctx per read().
+    zseek_compression_type_t type;
+    ZSTD_DCtx *dctx_zstd;    // TODO: If there's contention, use one dctx per read().
     pthread_rwlock_t lock;
 
     ZSTD_seekTable *st;
@@ -76,7 +82,7 @@ static ssize_t default_fsize(void *user_data)
     return st.st_size;
 }
 
-zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
+static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
     size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_reader_t *reader = malloc(sizeof(*reader));
@@ -85,13 +91,14 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
         goto fail;
     }
     memset(reader, 0, sizeof(*reader));
+    reader->type = ZSEEK_ZSTD;
 
     ZSTD_DCtx *dctx = ZSTD_createDCtx();
     if (!dctx) {
         set_error(errbuf, "context creation failed");
         goto fail_w_reader;
     }
-    reader->dctx = dctx;
+    reader->dctx_zstd = dctx;
 
     int pr = pthread_rwlock_init(&reader->lock, NULL);
     if (pr) {
@@ -129,6 +136,40 @@ fail:
     return NULL;
 }
 
+static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
+    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    // TODO
+    return NULL;
+}
+
+zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
+    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    // Look for magic number in the file
+    uint32_t magic_le;
+    ssize_t _read = user_file.pread(&magic_le, sizeof(magic_le), 0,
+        user_file.user_data);
+    if (_read != (ssize_t)sizeof(magic_le)) {
+        if (_read >= 0)
+            set_error(errbuf, "unexpected EOF");
+        else
+            // TODO OPT: Use errno if user_file.pread sets it
+            set_error(errbuf, "read file failed");
+        return NULL;
+    }
+
+    switch (le32toh(magic_le)) {
+    case ZSTD_MAGIC:
+        return zseek_reader_open_full_zstd(user_file, cache_size, errbuf);
+    case LZ4_MAGIC:
+        return zseek_reader_open_full_lz4(user_file, cache_size, errbuf);
+    default:
+        set_error(errbuf, "unrecognized file format");
+        return NULL;
+    }
+}
+
 zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
@@ -136,7 +177,8 @@ zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     return zseek_reader_open_full(user_file, cache_size, errbuf);
 }
 
-bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
+static bool zseek_reader_close_zstd(zseek_reader_t *reader,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     bool is_error = false;
 
@@ -146,7 +188,7 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
         is_error = true;
     }
 
-    size_t r = ZSTD_freeDCtx(reader->dctx);
+    size_t r = ZSTD_freeDCtx(reader->dctx_zstd);
     if (ZSTD_isError(r) && !is_error) {
         set_error(errbuf, "%s: %s", "free context", ZSTD_getErrorName(r));
         is_error = true;
@@ -159,7 +201,30 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
     return !is_error;
 }
 
-ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
+static bool zseek_reader_close_lz4(zseek_reader_t *reader,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    // TODO
+    return false;
+}
+
+bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    if (!reader)
+        return true;
+
+    switch (reader->type) {
+    case ZSEEK_ZSTD:
+        return zseek_reader_close_zstd(reader, errbuf);
+    case ZSEEK_LZ4:
+        return zseek_reader_close_lz4(reader, errbuf);
+    default:
+        // BUG
+        assert(false);
+    }
+}
+
+static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO: Try to return as much as possible (multiple frames).
@@ -220,7 +285,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
                     errno);
                 goto fail_w_cbuf;
             }
-            size_t r = ZSTD_decompressDCtx(reader->dctx, dbuf, frame_dsize,
+            size_t r = ZSTD_decompressDCtx(reader->dctx_zstd, dbuf, frame_dsize,
                 cbuf, frame_csize);
             if (ZSTD_isError(r)) {
                 set_error(errbuf, "%s: %s", "decompress frame",
@@ -261,6 +326,32 @@ fail_w_lock:
     pthread_rwlock_unlock(&reader->lock);
 fail:
     return -1;
+}
+
+static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
+    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    // TODO
+    return -1;
+}
+
+ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
+    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    if (!reader) {
+        set_error(errbuf, "invalid reader");
+        return false;
+    }
+
+    switch (reader->type) {
+    case ZSEEK_ZSTD:
+        return zseek_pread_zstd(reader, buf, count, offset, errbuf);
+    case ZSEEK_LZ4:
+        return zseek_pread_lz4(reader, buf, count, offset, errbuf);
+    default:
+        // BUG
+        assert(false);
+    }
 }
 
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,

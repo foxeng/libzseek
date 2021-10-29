@@ -1,7 +1,7 @@
 /**
  * @defgroup libzseek Efficient compressed file abstraction
  *
- * Efficient sequential write and random access read API using ZSTD.
+ * Efficient sequential write and random access read API.
  *
  * The file must be written out sequentially in one go,
  * but can be opened for random reads using offsets and sizes
@@ -110,7 +110,8 @@ typedef struct {
  * Supported compression algorithms
  */
 typedef enum {
-    ZSEEK_ZSTD = 0
+    ZSEEK_ZSTD = 0,
+    ZSEEK_LZ4,
 } zseek_compression_type_t;
 
 /**
