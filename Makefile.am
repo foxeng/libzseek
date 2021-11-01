@@ -15,9 +15,9 @@ lib_LTLIBRARIES = libzseek.la
 
 libzseek_la_LDFLAGS = $(WARN_LDFLAGS) -version-info $(LIBZSEEK_CURRENT):$(LIBZSEEK_REVISION):$(LIBZSEEK_AGE)
 
-libzseek_la_CFLAGS = $(AM_CFLAGS) $(ZSTD_CFLAGS)
+libzseek_la_CFLAGS = $(AM_CFLAGS) $(ZSTD_CFLAGS) $(LZ4_CFLAGS)
 libzseek_la_CPPFLAGS = $(AM_CPPFLAGS)
-libzseek_la_LIBADD = $(ZSTD_LIBS) $(PTHREAD_LIBS)
+libzseek_la_LIBADD = $(ZSTD_LIBS) $(LZ4_LIBS) $(PTHREAD_LIBS)
 
 libzseek_la_SOURCES = src/seek_table.h \
 		      src/compress.c \
@@ -35,10 +35,10 @@ include_HEADERS = src/zseek.h
 noinst_PROGRAMS = benchmark example test_cache test_buffer
 
 benchmark_SOURCES = test/benchmark.c $(HEADERS)
-benchmark_LDADD = $(ZSTD_LIBS) -lm $(top_builddir)/libzseek.la
+benchmark_LDADD = $(ZSTD_LIBS) $(LZ4_LIBS) -lm $(top_builddir)/libzseek.la
 
 example_SOURCES = test/example.c $(HEADERS)
-example_LDADD = $(ZSTD_LIBS) -lm $(top_builddir)/libzseek.la
+example_LDADD = $(ZSTD_LIBS) $(LZ4_LIBS) -lm $(top_builddir)/libzseek.la
 
 test_cache_SOURCES = test/test_cache.c $(top_builddir)/src/cache.h
 test_cache_CFLAGS = @CHECK_CFLAGS@

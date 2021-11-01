@@ -131,12 +131,21 @@ typedef struct {
 } zseek_zstd_param_t;
 
 /**
+ * Compression controls for lz4
+ */
+typedef struct {
+    /** Compression level (default = 0). Values < 0 trigger "acceleration" */
+    int compression_level;
+} zseek_lz4_param_t;
+
+/**
  * Collection of algorithm specific control options
  */
 typedef struct {
     zseek_compression_type_t type;
     union {
         zseek_zstd_param_t zstd_params;
+        zseek_lz4_param_t lz4_params;
     } params;
 } zseek_compression_param_t;
 
