@@ -4,7 +4,8 @@
 #include <stdio.h>      // I/O
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // perror
-#include <string.h>     // strcpy, strcat, memcmp
+#include <string.h>     // strcpy, strcat, memcmp, strcmp
+#include <assert.h>     // assert
 
 #include <zseek.h>
 
@@ -122,7 +123,8 @@ fail:
 /**
  * Compress the contents of @p ufilename to @p cfilename.
  */
-static bool compress(const char *ufilename, const char *cfilename)
+static bool compress(const char *ufilename, const char *cfilename,
+    zseek_compression_type_t ctype)
 {
     FILE *ufile = fopen(ufilename, "rb");
     if (!ufile) {
@@ -137,10 +139,23 @@ static bool compress(const char *ufilename, const char *cfilename)
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_compression_param_t param = { .type = ZSEEK_ZSTD,
-        .params.zstd_params.nb_workers = NB_WORKERS,
-        .params.zstd_params.compression_level = 3,
-        .params.zstd_params.strategy = 1 };
+    zseek_compression_param_t param = {0};
+    switch (ctype) {
+    case ZSEEK_ZSTD:
+        param.type = ZSEEK_ZSTD;
+        param.params.zstd_params.nb_workers = NB_WORKERS;
+        param.params.zstd_params.compression_level = 3;
+        param.params.zstd_params.strategy = 1;
+        break;
+    case ZSEEK_LZ4:
+        param.type = ZSEEK_LZ4;
+        param.params.lz4_params.compression_level = 0;
+        break;
+    default:
+        // BUG
+        assert(false);
+        goto fail_w_cfile;
+    }
     zseek_writer_t *writer = zseek_writer_open(cfile, &param, MIN_FRAME_SIZE,
         errbuf);
     if (!writer) {
@@ -203,21 +218,42 @@ fail:
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s INFILE\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE\n", argv[0]);
         goto fail;
     }
 
-    const char *ufilename = argv[1];
+    zseek_compression_type_t ctype;
+    if (strcmp(argv[1], "--zstd") == 0)
+        ctype = ZSEEK_ZSTD;
+    else if (strcmp(argv[1], "--lz4") == 0)
+        ctype = ZSEEK_LZ4;
+    else {
+        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE\n", argv[0]);
+        goto fail;
+    }
+
+    const char *ufilename = argv[2];
     char *cfilename = malloc(strlen(ufilename) + 5);
     if (!cfilename) {
         perror("allocate output filename");
         goto fail;
     }
     strcpy(cfilename, ufilename);
-    strcat(cfilename, ".zst");
+    switch (ctype) {
+    case ZSEEK_ZSTD:
+        strcat(cfilename, ".zst");
+        break;
+    case ZSEEK_LZ4:
+        strcat(cfilename, ".lz4");
+        break;
+    default:
+        // BUG
+        assert(false);
+        goto fail_w_cfilename;
+    }
 
-    if (!compress(ufilename, cfilename))
+    if (!compress(ufilename, cfilename, ctype))
         goto fail_w_cfilename;
 
     if (!decompress(ufilename, cfilename))
