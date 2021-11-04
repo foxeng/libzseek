@@ -4,9 +4,10 @@
 #include <stdio.h>      // I/O
 #include <stdlib.h>     // malloc, free
 #include <errno.h>      // perror
-#include <string.h>     // strcpy, strcat, memcmp
+#include <string.h>     // strcpy, strcat, memcmp, strcmp
 #include <math.h>       // sqrt
 #include <time.h>       // clock_gettime
+#include <assert.h>     // assert
 
 #include <sys/stat.h>   // stat
 #include <sys/time.h>
@@ -126,7 +127,7 @@ static void report(const results_t *r, int nb_workers, bool terse)
  * Compress the contents of @p ufilename to @p cfilename.
  */
 static results_t *compress(const char *ufilename, const char *cfilename,
-    int nb_workers, size_t min_frame_size)
+    int nb_workers, size_t min_frame_size, zseek_compression_type_t ctype)
 {
     // TODO OPT: mmap?
 
@@ -180,10 +181,23 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_compression_param_t param = { .type = ZSEEK_ZSTD,
-        .params.zstd_params.nb_workers = nb_workers,
-        .params.zstd_params.compression_level = 3,
-        .params.zstd_params.strategy = 1 };
+    zseek_compression_param_t param = {0};
+    switch (ctype) {
+    case ZSEEK_ZSTD:
+        param.type = ZSEEK_ZSTD;
+        param.params.zstd_params.nb_workers = nb_workers;
+        param.params.zstd_params.compression_level = 3;
+        param.params.zstd_params.strategy = 1;
+        break;
+    case ZSEEK_LZ4:
+        param.type = ZSEEK_LZ4;
+        param.params.lz4_params.compression_level = 0;
+        break;
+    default:
+        // BUG
+        assert(false);
+        goto fail_w_cfile;
+    }
     zseek_writer_t *writer = zseek_writer_open(cfile, &param, min_frame_size,
         errbuf);
     if (!writer) {
@@ -259,26 +273,45 @@ fail:
 
 int main(int argc, char *argv[])
 {
-    if (argc < 4) {
-        fprintf(stderr, "Usage: %s INFILE nb_workers frame_size (MiB) [-t]\n",
-            argv[0]);
+    if (argc < 5 || argc > 6) {
+        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
+            "(MiB) [-t]\n", argv[0]);
         return 1;
     }
 
-    const char *ufilename = argv[1];
+    zseek_compression_type_t ctype;
+    if (strcmp(argv[1], "--zstd") == 0)
+        ctype = ZSEEK_ZSTD;
+    else if (strcmp(argv[1], "--lz4") == 0)
+        ctype = ZSEEK_LZ4;
+    else {
+        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
+            "(MiB) [-t]\n", argv[0]);
+        return 1;
+    }
+
+    const char *ufilename = argv[2];
     const char *cfilename = "/dev/null";
 
-    int nb_workers = atoi(argv[2]);
-    size_t frame_size = atoi(argv[3]) * (1 << 20);
+    int nb_workers = atoi(argv[3]);
+    size_t frame_size = atoi(argv[4]) * (1 << 20);
 
-    results_t *res = compress(ufilename, cfilename, nb_workers, frame_size);
+    bool terse = false;
+    if (argc > 5) {
+        if (strcmp(argv[5], "-t") == 0)
+            terse = true;
+        else {
+            fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
+                "(MiB) [-t]\n", argv[0]);
+            return 1;
+        }
+    }
+
+    results_t *res = compress(ufilename, cfilename, nb_workers, frame_size,
+        ctype);
     if (!res)
         return 1;
 
-    bool terse = false;
-    if (argc > 4 && strcmp(argv[4], "-t") == 0) {
-        terse = true;
-    }
     report(res, nb_workers, terse);
 
     results_free(res);
