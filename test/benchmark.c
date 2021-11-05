@@ -21,6 +21,7 @@
 
 typedef struct results {
     off_t usize;
+    off_t csize;
     struct timespec wt1;
     struct timespec wt2;
     struct rusage ru1;
@@ -28,6 +29,11 @@ typedef struct results {
     double *latencies;
     size_t num_latencies;
 } results_t;
+
+typedef struct counting_file_data {
+    FILE *file;
+    off_t written;
+} counting_file_data_t;
 
 static results_t *results_new(size_t latencies_capacity)
 {
@@ -106,11 +112,14 @@ static void report(const results_t *r, int nb_workers, bool terse)
         sum += (r->latencies[i] - lat_mean) * (r->latencies[i] - lat_mean);
     double lat_std = sqrt(sum / r->num_latencies);
 
+    // Compression ratio
+    double cratio = (double)r->usize / r->csize;
+
 
     if (terse)
-        printf("%.2lf %.2lf %.2lf %.2lf %.0lf %.2lf %.2lf %.0lf %lf %lf %lf %lf\n",
+        printf("%.2lf %.2lf %.2lf %.2lf %.0lf %.2lf %.2lf %.0lf %lf %lf %lf %lf %lf\n",
             wt, ct, ut, st, cu, tput_tot, tput_pw, mem, lat_mean, lat_std,
-            lat_min, lat_max);
+            lat_min, lat_max, cratio);
     else {
         printf("Wall time (sec): %.2lf\n", wt);
         printf("CPU time (sec): %.2lf (%.2lf + %.2lf)\n", ct, ut, st);
@@ -120,7 +129,22 @@ static void report(const results_t *r, int nb_workers, bool terse)
         printf("Max RSS: %.0lf (MiB)\n", mem);
         printf("zseek_write() latency (msec): %lf +- %lf [%lf, %lf]\n",
             lat_mean, lat_std, lat_min, lat_max);
+        printf("Compression ratio: %lf\n", cratio);
     }
+}
+
+/**
+ * A custom write handler, counting bytes written.
+ */
+static bool counting_write(const void *data, size_t size, void *user_data)
+{
+    counting_file_data_t *cfd = user_data;
+    if (fwrite(data, 1, size, cfd->file) != size) {
+        // perror("write to file");
+        return false;
+    }
+    cfd->written += size;
+    return true;
 }
 
 /**
@@ -198,7 +222,9 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         assert(false);
         goto fail_w_cfile;
     }
-    zseek_writer_t *writer = zseek_writer_open(cfile, &param, min_frame_size,
+    counting_file_data_t cfd = { .file = cfile };
+    zseek_write_file_t zwf = { .user_data = &cfd, .write = counting_write };
+    zseek_writer_t *writer = zseek_writer_open_full(zwf, &param, min_frame_size,
         errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
@@ -227,6 +253,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         lat += (t2.tv_nsec - t1.tv_nsec) / (1000.0 * 1000);
         res->latencies[res->num_latencies++] = lat;
     }
+    res->csize = cfd.written;
 
     if (!zseek_writer_close(writer, errbuf)) {
         fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
