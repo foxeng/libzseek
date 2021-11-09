@@ -36,5 +36,13 @@ zseek_frame_t zseek_cache_find(zseek_cache_t *cache, size_t frame_idx);
  * @attention Not safe to call concurrently (unlocked).
  */
 bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame);
+/**
+ * Returns the memory usage (total heap allocation) of @p cache in bytes.
+ */
+size_t zseek_cache_memory_usage(const zseek_cache_t *cache);
+/**
+ * Returns the number of frames currently cached in @p cache.
+ */
+size_t zseek_cache_entries(const zseek_cache_t *cache);
 
 #endif  // CACHE_H

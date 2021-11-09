@@ -26,6 +26,7 @@ struct zseek_cache {
 
     size_t size;
     size_t capacity;
+    size_t entries_memory;
 };
 
 static int compare(const void *pa, const void *pb)
@@ -67,6 +68,7 @@ static void evict_lru(zseek_cache_t *cache)
     (void*)tdelete(lru, &cache->root, compare);
 
     cache->size--;
+    cache->entries_memory -= lru->frame.len;
 
     free(lru->frame.data);
     free(lru);
@@ -146,6 +148,7 @@ bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame)
     cache->tail = f;
 
     cache->size++;
+    cache->entries_memory += frame.len;
 
     return true;
 
@@ -153,4 +156,21 @@ fail_w_f:
     free(f);
 fail:
     return false;
+}
+
+size_t zseek_cache_memory_usage(const zseek_cache_t *cache)
+{
+    if (!cache)
+        return 0;
+
+    return sizeof(*cache) + cache->size * sizeof(*(cache->head)) +
+        cache->entries_memory;
+}
+
+size_t zseek_cache_entries(const zseek_cache_t *cache)
+{
+    if (!cache)
+        return 0;
+
+    return cache->size;
 }

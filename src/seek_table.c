@@ -224,6 +224,21 @@ size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx)
     return st->entries[frame_idx + 1].dOffset - st->entries[frame_idx].dOffset;
 }
 
+size_t seek_table_memory_usage(const ZSTD_seekTable *st)
+{
+    return sizeof(*st) + st->tableLen * sizeof(st->entries[0]);
+}
+
+size_t seek_table_entries(const ZSTD_seekTable *st)
+{
+    return st->tableLen;
+}
+
+size_t seek_table_decompressed_size(const ZSTD_seekTable *st)
+{
+    return st->entries[st->tableLen].dOffset;
+}
+
 /* NOTE: The below are copied verbatim from
 zstd/contrib/seekable_format/zstdseek_compress.c @ v1.5.0 */
 
@@ -400,4 +415,19 @@ size_t ZSTD_seekable_writeSeekTable(ZSTD_frameLog* fl, ZSTD_outBuffer* output)
 
     if (fl->seekTablePos != seekTableLen) return ERROR(GENERIC);
     return 0;
+}
+
+size_t framelog_size(const ZSTD_frameLog *fl)
+{
+    return ZSTD_seekable_seekTableSize(fl);
+}
+
+size_t framelog_memory_usage(const ZSTD_frameLog *fl)
+{
+    return sizeof(*fl) + fl->capacity * sizeof(fl->entries[0]);
+}
+
+size_t framelog_entries(const ZSTD_frameLog *fl)
+{
+    return fl->size;
 }

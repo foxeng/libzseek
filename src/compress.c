@@ -19,6 +19,7 @@ struct zseek_writer {
     size_t frame_uc;    // Current frame bytes (uncompressed)
     size_t frame_cm;    // Current frame bytes (compressed)
     size_t min_frame_size;
+    size_t total_cm;    // Total file compressed bytes _excluding_ frame_cm
     ZSTD_frameLog *fl;
 };
 
@@ -197,6 +198,7 @@ static bool end_frame(zseek_writer_t *writer)
     }
 
     // Reset current frame bytes
+    writer->total_cm += writer->frame_cm;
     writer->frame_uc = 0;
     writer->frame_cm = 0;
 
@@ -321,4 +323,44 @@ fail_w_bout:
     free(bout);
 fail:
     return false;
+}
+
+bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    if (!writer) {
+        set_error(errbuf, "invalid writer");
+        return false;
+    }
+
+    if (!stats) {
+        set_error(errbuf, "invalid stats pointer");
+        return false;
+    }
+
+    size_t frames = framelog_entries(writer->fl);
+    if (writer->frame_uc > 0)
+        frames++;
+
+    size_t seek_table_size = framelog_size(writer->fl);
+    if (writer->frame_uc > 0) {
+        const size_t SIZE_PER_FRAME = 8; // assume no checksum
+        seek_table_size += SIZE_PER_FRAME;
+    }
+
+    size_t seek_table_memory = framelog_memory_usage(writer->fl);
+
+    // NOTE: This is an _estimate_ because frame_cm is <= final frame size,
+    // since there may be still data to flush from the compressor.
+    size_t compressed_size = writer->total_cm + writer->frame_cm +
+        seek_table_size;
+
+    *stats = (zseek_writer_stats_t) {
+        .seek_table_size = seek_table_size,
+        .seek_table_memory = seek_table_memory,
+        .frames = frames,
+        .compressed_size = compressed_size,
+    };
+
+    return true;
 }
