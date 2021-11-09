@@ -46,4 +46,30 @@ size_t frame_size_c(ZSTD_seekTable *st, size_t frame_idx);
  */
 size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx);
 
+/**
+ * Return the size in bytes that @p fl would take up if written to disk.
+ */
+size_t framelog_size(const ZSTD_frameLog *fl);
+/**
+ * Return the memory usage (total heap allocation) of @p fl in bytes.
+ */
+size_t framelog_memory_usage(const ZSTD_frameLog *fl);
+/**
+ * Return the number of entries in @p fl.
+ */
+size_t framelog_entries(const ZSTD_frameLog *fl);
+
+/**
+ * Return the memory usage (total heap allocation) of @p st in bytes.
+ */
+size_t seek_table_memory_usage(const ZSTD_seekTable *st);
+/**
+ * Return the number of entries in @p st.
+ */
+size_t seek_table_entries(const ZSTD_seekTable *st);
+/**
+ * Return the total decompressed size of the frames in @p st.
+ */
+size_t seek_table_decompressed_size(const ZSTD_seekTable *st);
+
 #endif /* SEEK_TABLE_H */

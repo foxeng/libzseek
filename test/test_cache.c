@@ -158,6 +158,48 @@ START_TEST(test_cache_replace)
 }
 END_TEST
 
+START_TEST(test_cache_memory_usage_null)
+{
+    ck_assert(zseek_cache_memory_usage(NULL) == 0);
+}
+END_TEST
+
+START_TEST(test_cache_memory_usage)
+{
+    zseek_cache_t *cache = zseek_cache_new(1);
+    ck_assert_msg(cache != NULL, "failed to create cache");
+    zseek_frame_t frame = {.idx = 1, .len = 512};
+    frame.data = malloc(frame.len);
+    ck_assert_msg(frame.data != NULL, "failed to create frame %zu", frame.idx);
+    ck_assert_msg(zseek_cache_insert(cache, frame), "failed to insert frame");
+
+    ck_assert(zseek_cache_memory_usage(cache) >= frame.len);
+
+    zseek_cache_free(cache);
+}
+END_TEST
+
+START_TEST(test_cache_entries_null)
+{
+    ck_assert(zseek_cache_entries(NULL) == 0);
+}
+END_TEST
+
+START_TEST(test_cache_entries)
+{
+    zseek_cache_t *cache = zseek_cache_new(2);
+    ck_assert_msg(cache != NULL, "failed to create cache");
+    zseek_frame_t frame = {.idx = 1, .len = 512};
+    frame.data = malloc(frame.len);
+    ck_assert_msg(frame.data != NULL, "failed to create frame %zu", frame.idx);
+    ck_assert_msg(zseek_cache_insert(cache, frame), "failed to insert frame");
+
+    ck_assert(zseek_cache_entries(cache) == 1);
+
+    zseek_cache_free(cache);
+}
+END_TEST
+
 Suite *cache_suite(void)
 {
     Suite *s = suite_create("cache");
@@ -174,6 +216,10 @@ Suite *cache_suite(void)
     tcase_add_test(tc_core, test_cache_find_present);
     tcase_add_test(tc_core, test_cache_find_absent);
     tcase_add_test(tc_core, test_cache_replace);
+    tcase_add_test(tc_core, test_cache_memory_usage_null);
+    tcase_add_test(tc_core, test_cache_memory_usage);
+    tcase_add_test(tc_core, test_cache_entries_null);
+    tcase_add_test(tc_core, test_cache_entries);
 
     suite_add_tcase(s, tc_core);
 

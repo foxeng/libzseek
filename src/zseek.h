@@ -150,6 +150,36 @@ typedef struct zseek_writer zseek_writer_t;
 typedef struct zseek_reader zseek_reader_t;
 
 /**
+ * Collection of writer statistics
+ */
+typedef struct {
+    /** Size of seek table in bytes (on disk) */
+    size_t seek_table_size;
+    /** Memory usage of seek table in bytes */
+    size_t seek_table_memory;
+    /** Number of frames */
+    size_t frames;
+    /** Estimate for compressed data size in bytes. Always <= actual size. */
+    size_t compressed_size;
+} zseek_writer_stats_t;
+
+/**
+ * Collection of reader statistics
+ */
+typedef struct {
+    /** Memory usage of seek table in bytes */
+    size_t seek_table_memory;
+    /** Number of frames */
+    size_t frames;
+    /** Decompressed file size in bytes */
+    size_t decompressed_size;
+    /** Memory usage of reader cache in bytes */
+    size_t cache_memory;
+    /** Number of frames currently cached */
+    size_t cached_frames;
+} zseek_reader_stats_t;
+
+/**
  * Creates a compressed file for sequential writes
  *
  * @param user_file
@@ -233,6 +263,24 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
+ * Returns currently available writer statistics
+ *
+ * @param writer
+ *	Compressed file handle to get stats for
+ * @param[out] stats
+ *  Pointer to stats structure to populate
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval true
+ *  On success
+ * @retval false
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
+ */
+bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -327,6 +375,24 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
+ * Returns currently available reader statistics
+ *
+ * @param reader
+ *	Compressed file handle to get stats for
+ * @param[out] stats
+ *  Pointer to stats structure to populate
+ * @param[out] errbuf
+ *	Pointer to error message buffer or @a NULL
+ *
+ * @retval true
+ *  On success
+ * @retval false
+ *  On error. If not @a NULL, @p errbuf is populated with an error message.
+ */
+bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 #endif

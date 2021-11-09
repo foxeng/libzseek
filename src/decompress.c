@@ -272,3 +272,37 @@ ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
 
     return ret;
 }
+
+bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    if (!reader) {
+        set_error(errbuf, "invalid reader");
+        return false;
+    }
+
+    if (!stats) {
+        set_error(errbuf, "invalid stats pointer");
+        return false;
+    }
+
+    size_t seek_table_memory = seek_table_memory_usage(reader->st);
+
+    size_t frames = seek_table_entries(reader->st);
+
+    size_t decompressed_size = seek_table_decompressed_size(reader->st);
+
+    size_t cache_memory = zseek_cache_memory_usage(reader->cache);
+
+    size_t cached_frames = zseek_cache_entries(reader->cache);
+
+    *stats = (zseek_reader_stats_t) {
+        .seek_table_memory = seek_table_memory,
+        .frames = frames,
+        .decompressed_size = decompressed_size,
+        .cache_memory = cache_memory,
+        .cached_frames = cached_frames,
+    };
+
+    return true;
+}
