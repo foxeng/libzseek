@@ -286,6 +286,12 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
         return false;
     }
 
+    int pr = pthread_rwlock_rdlock(&reader->lock);
+    if (pr) {
+        set_error_with_errno(errbuf, "lock for reading", pr);
+        return false;
+    }
+
     size_t seek_table_memory = seek_table_memory_usage(reader->st);
 
     size_t frames = seek_table_entries(reader->st);
@@ -295,6 +301,12 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
     size_t cache_memory = zseek_cache_memory_usage(reader->cache);
 
     size_t cached_frames = zseek_cache_entries(reader->cache);
+
+    pr = pthread_rwlock_unlock(&reader->lock);
+    if (pr) {
+        set_error_with_errno(errbuf, "unlock", pr);
+        return false;
+    }
 
     *stats = (zseek_reader_stats_t) {
         .seek_table_memory = seek_table_memory,

@@ -360,6 +360,8 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 /**
  * Reads data from the current offset of a compressed file
  *
+ * This is safe to call concurrently
+ *
  * @param reader
  *	Compressed file reader
  * @param[out] buf
@@ -379,6 +381,8 @@ ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
 
 /**
  * Returns currently available reader statistics
+ *
+ * This is safe to call concurrently
  *
  * @param reader
  *	Compressed file handle to get stats for
