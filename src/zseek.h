@@ -162,6 +162,8 @@ typedef struct {
     size_t frames;
     /** Estimate for compressed data size in bytes. Always <= actual size. */
     size_t compressed_size;
+    /** Estimate for buffered data size in bytes. Always <= actual size. */
+    size_t buffer_size;
 } zseek_writer_stats_t;
 
 /**
@@ -178,6 +180,8 @@ typedef struct {
     size_t cache_memory;
     /** Number of frames currently cached */
     size_t cached_frames;
+    /** Estimate for buffered data size in bytes. Always <= actual size. */
+    size_t buffer_size;
 } zseek_reader_stats_t;
 
 /**
