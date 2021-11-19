@@ -16,6 +16,7 @@
 #include "seek_table.h"
 #include "common.h"
 #include "cache.h"
+#include "buffer.h"
 
 #define ZSTD_MAGIC 0xFD2FB528
 #define LZ4_MAGIC 0x184D2204
@@ -31,6 +32,7 @@ struct zseek_reader {
     ZSTD_seekTable *st;
     zseek_cache_t *cache;
     size_t pos;
+    zseek_buffer_t *cbuf;
 };
 
 static ssize_t default_pread(void *data, size_t size, size_t offset,
@@ -122,8 +124,17 @@ static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
     }
     reader->cache = cache;
 
+    zseek_buffer_t *cbuf = zseek_buffer_new(0);
+    if (!cbuf) {
+        set_error(errbuf, "buffer creation failed");
+        goto fail_w_cache;
+    }
+    reader->cbuf = cbuf;
+
     return reader;
 
+fail_w_cache:
+    zseek_cache_free(cache);
 fail_w_st:
     seek_table_free(st);
 fail_w_lock:
@@ -194,6 +205,7 @@ static bool zseek_reader_close_zstd(zseek_reader_t *reader,
         is_error = true;
     }
 
+    zseek_buffer_free(reader->cbuf);
     zseek_cache_free(reader->cache);
     seek_table_free(reader->st);
     free(reader);
@@ -221,6 +233,7 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
     default:
         // BUG
         assert(false);
+        return false;
     }
 }
 
@@ -239,7 +252,6 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
         goto fail;
     }
 
-    void *cbuf = NULL;
     void *dbuf = NULL;
     zseek_frame_t frame = zseek_cache_find(reader->cache, frame_idx);
     if (!frame.data) {
@@ -257,16 +269,18 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
 
         frame = zseek_cache_find(reader->cache, frame_idx);
         if (!frame.data) {
-            // Read compressed frame
+            // Resize compressed buffer
             size_t frame_csize = frame_size_c(reader->st, frame_idx);
-            cbuf = malloc(frame_csize);
-            if (!cbuf) {
-                set_error_with_errno(errbuf, "allocate compressed buffer",
-                    errno);
+            if (!zseek_buffer_resize(reader->cbuf, frame_csize)) {
+                set_error(errbuf, "resize compressed buffer");
                 goto fail_w_lock;
             }
+            void *cbuf_data = zseek_buffer_data(reader->cbuf);
+            assert(cbuf_data);
+
+            // Read compressed frame
             off_t frame_offset = frame_offset_c(reader->st, frame_idx);
-            ssize_t _read = reader->user_file.pread(cbuf, frame_csize,
+            ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
                 (size_t)frame_offset, reader->user_file.user_data);
             if (_read != (ssize_t)frame_csize) {
                 if (_read >= 0)
@@ -274,7 +288,7 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
                 else
                     // TODO OPT: Use errno if user_file.pread sets it
                     set_error(errbuf, "read file failed");
-                goto fail_w_cbuf;
+                goto fail_w_lock;
             }
 
             // Decompress frame
@@ -283,10 +297,10 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
             if (!dbuf) {
                 set_error_with_errno(errbuf, "allocate decompressed buffer",
                     errno);
-                goto fail_w_cbuf;
+                goto fail_w_lock;
             }
             size_t r = ZSTD_decompressDCtx(reader->dctx_zstd, dbuf, frame_dsize,
-                cbuf, frame_csize);
+                cbuf_data, frame_csize);
             if (ZSTD_isError(r)) {
                 set_error(errbuf, "%s: %s", "decompress frame",
                     ZSTD_getErrorName(r));
@@ -301,8 +315,6 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
                 set_error(errbuf, "frame caching failed");
                 goto fail_w_dbuf;
             }
-
-            free(cbuf);
         }
     }
 
@@ -320,8 +332,6 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
 
 fail_w_dbuf:
     free(dbuf);
-fail_w_cbuf:
-    free(cbuf);
 fail_w_lock:
     pthread_rwlock_unlock(&reader->lock);
 fail:
@@ -351,6 +361,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     default:
         // BUG
         assert(false);
+        return -1;
     }
 }
 
@@ -393,6 +404,10 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
 
     size_t cached_frames = zseek_cache_entries(reader->cache);
 
+    // NOTE: This is an _estimate_ because the underlying compression lib may
+    // buffer too in its context object.
+    size_t buffer_size = zseek_buffer_size(reader->cbuf);
+
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {
         set_error_with_errno(errbuf, "unlock", pr);
@@ -405,6 +420,7 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
         .decompressed_size = decompressed_size,
         .cache_memory = cache_memory,
         .cached_frames = cached_frames,
+        .buffer_size = buffer_size,
     };
 
     return true;
