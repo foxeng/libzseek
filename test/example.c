@@ -45,7 +45,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
         goto fail_w_reader;
     }
     void *dbuf = malloc(buf_len);
-    if (!ubuf) {
+    if (!dbuf) {
         perror("decompress: allocate decompression buffer");
         goto fail_w_ubuf;
     }
