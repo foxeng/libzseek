@@ -1,4 +1,4 @@
-AC_INIT([libzseek], [0.2.0], [Fotis Xenakis <foxen@windowslive.com>])
+AC_INIT([libzseek], [2.0.0], [Fotis Xenakis <foxen@windowslive.com>])
 
 # Before building a new release, the library version info should be modified.
 # Apply these instructions sequentially:
