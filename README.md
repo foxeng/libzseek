@@ -1,4 +1,4 @@
-Random access decompression, using zstd.
+Random access decompression, using zstd or lz4.
 
 # General
 
@@ -20,7 +20,7 @@ Elementary test to compress, decomporess and validate a user-specified file. See
 `test/example.c`.
 
 ```sh
-./example <path-to-uncompressed-file>
+./example --zstd|--lz4 <path-to-uncompressed-file>
 ```
 
 # Benchmark
@@ -33,23 +33,21 @@ See `test/benchmark.c`.
 For a single run:
 
 ```sh
-./benchmark <path-to-uncompressed-file> <workers> <frame-size>
+./benchmark --zstd|--lz4 <path-to-uncompressed-file> <workers> <frame-size>
 ```
 
 For multiple runs:
 
 ```sh
 # See/edit benchmark.sh for the # of workers/min frame sizes to test
-./benchmark.sh <path-to-uncompressed-file> | tee report.txt
+./benchmark.sh --zstd|--lz4 <path-to-uncompressed-file> | tee report.txt
 ./report.awk
 ```
 
 # TODO
 
 - More tests: standalone, multi-threaded.
-- Pluggable I/O.
 - Pluggable memory management.
-- Parameterize/tune cache size and compression level.
 - Dictionaries?
 - OPT: Stop relying on zstd's multi-threading?
   - Pro: could use vanilla-built zstd.
