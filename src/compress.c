@@ -22,7 +22,6 @@ struct zseek_writer {
     union {
         ZSTD_CCtx *cctx_zstd;
         struct {
-            LZ4F_cctx *cctx_lz4;
             zseek_buffer_t *ubuf;
             LZ4F_preferences_t preferences;
         };
@@ -188,19 +187,10 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
     // Use smaller block sizes to reduce buffering
     writer->preferences.frameInfo.blockSizeID = LZ4F_max64KB;
 
-    LZ4F_cctx *cctx;
-    LZ4F_errorCode_t r = LZ4F_createCompressionContext(&cctx, LZ4F_VERSION);
-    if (LZ4F_isError(r)) {
-        set_error(errbuf, "%s: %s", "context creation failed",
-            LZ4F_getErrorName(r));
-        goto fail_w_writer;
-    }
-    writer->cctx_lz4 = cctx;
-
     zseek_buffer_t *ubuf = zseek_buffer_new(min_frame_size);
     if (!ubuf) {
         set_error(errbuf, "input buffer creation failed");
-        goto fail_w_cctx;
+        goto fail_w_writer;
     }
     writer->ubuf = ubuf;
     writer->min_frame_size = min_frame_size;
@@ -212,7 +202,9 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
     }
     writer->fl = fl;
 
-    zseek_buffer_t *cbuf = zseek_buffer_new(0);
+    size_t cbuf_len = LZ4F_compressFrameBound(min_frame_size,
+        &writer->preferences);
+    zseek_buffer_t *cbuf = zseek_buffer_new(cbuf_len);
     if (!cbuf) {
         set_error(errbuf, "output buffer creation failed");
         goto fail_w_fl;
@@ -227,8 +219,6 @@ fail_w_fl:
     ZSTD_seekable_freeFrameLog(fl);
 fail_w_ubuf:
     zseek_buffer_free(ubuf);
-fail_w_cctx:
-    LZ4F_freeCompressionContext(cctx);
 fail_w_writer:
     free(writer);
 fail:
@@ -394,7 +384,8 @@ static bool end_frame_lz4(zseek_writer_t *writer)
     assert(ubuf_data);
 
     // Resize output buffer
-    size_t cbuf_len = LZ4F_compressBound(writer->frame_uc,
+    writer->preferences.frameInfo.contentSize = writer->frame_uc;
+    size_t cbuf_len = LZ4F_compressFrameBound(writer->frame_uc,
         &writer->preferences);
     if (!zseek_buffer_resize(writer->cbuf, cbuf_len)) {
         // fprintf(stderr, "resize output buffer failed");
@@ -403,28 +394,19 @@ static bool end_frame_lz4(zseek_writer_t *writer)
     void *cbuf_data = zseek_buffer_data(writer->cbuf);
     assert(cbuf_data);
 
-    // Compress frame data
-    LZ4F_compressOptions_t opts = { .stableSrc = 1 };
-    size_t cdata_len = LZ4F_compressUpdate(writer->cctx_lz4, cbuf_data,
-        cbuf_len, ubuf_data, ubuf_len, &opts);
+    // Compress frame
+    size_t cdata_len = LZ4F_compressFrame(cbuf_data, cbuf_len, ubuf_data,
+        ubuf_len, &writer->preferences);
     if (LZ4F_isError(cdata_len)) {
         // fprintf(stderr, "%s: %s", "compress", LZ4F_getErrorName(cdata_len));
         return false;
     }
+    // Correct buffer size (shrinks it, should not fail)
+    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
     writer->frame_cm += cdata_len;
 
-    // End frame
-    size_t footer_len = LZ4F_compressEnd(writer->cctx_lz4,
-        (uint8_t*)cbuf_data + cdata_len, cbuf_len - cdata_len, &opts);
-    if (LZ4F_isError(footer_len)) {
-        // fprintf(stderr, "%s: %s", "end compressed frame",
-        //     LZ4F_getErrorName(footer_len));
-        return false;
-    }
-    writer->frame_cm += footer_len;
-
     // Write output
-    if (!writer->user_file.write(cbuf_data, cdata_len + footer_len,
+    if (!writer->user_file.write(cbuf_data, cdata_len,
         writer->user_file.user_data)) {
 
         // TODO OPT: Use errno if user_file.pread sets it
@@ -440,11 +422,12 @@ static bool end_frame_lz4(zseek_writer_t *writer)
         return false;
     }
 
-    // Reset buffer and counters
+    // Reset buffers and counters
     writer->total_cm += writer->frame_cm;
     writer->frame_uc = 0;
     writer->frame_cm = 0;
     zseek_buffer_reset(writer->ubuf);
+    zseek_buffer_reset(writer->cbuf);
 
     return true;
 }
@@ -462,7 +445,9 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
         }
     }
 
-    size_t cbuf_len = 4096;
+    size_t cbuf_len = zseek_buffer_capacity(writer->cbuf);
+    if (cbuf_len < 4096)
+        cbuf_len = 4096;
     if (!zseek_buffer_resize(writer->cbuf, cbuf_len) && !is_error) {
         set_error(errbuf, "resize output buffer failed");
         is_error = true;
@@ -499,12 +484,6 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
     }
 
     zseek_buffer_free(writer->ubuf);
-
-    LZ4F_errorCode_t r_lz4 = LZ4F_freeCompressionContext(writer->cctx_lz4);
-    if (LZ4F_isError(r_lz4) && !is_error) {
-        set_error(errbuf, "%s: %s", "free context", LZ4F_getErrorName(r_lz4));
-        is_error = true;
-    }
 
     free(writer);
 
@@ -582,29 +561,6 @@ static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
 static bool zseek_write_lz4(zseek_writer_t *writer, const void *buf, size_t len,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    if (writer->frame_cm == 0) {
-        // Start new frame
-        uint8_t header[LZ4F_HEADER_SIZE_MAX];
-        size_t header_len = LZ4F_compressBegin(writer->cctx_lz4, header,
-            LZ4F_HEADER_SIZE_MAX, &writer->preferences);
-        if (LZ4F_isError(header_len)) {
-            set_error(errbuf, "%s: %s", "begin compressed frame",
-                LZ4F_getErrorName(header_len));
-            return false;
-        }
-        writer->frame_cm += header_len;
-
-        // Write header to file
-        // TODO OPT: Buffer header in compressed buffer instead?
-        if (!writer->user_file.write(header, header_len,
-            writer->user_file.user_data)) {
-
-            // TODO OPT: Use errno if user_file.pread sets it
-            set_error(errbuf, "write header to file failed");
-            return false;
-        }
-    }
-
     // Buffer uncompressed data
     if (!zseek_buffer_push(writer->ubuf, buf, len)) {
         set_error(errbuf, "failed to buffer uncompressed data");
