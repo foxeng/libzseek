@@ -596,7 +596,7 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
 
     // NOTE: This is an _estimate_ because the underlying compression lib may
     // buffer too in its context object.
-    size_t buffer_size = zseek_buffer_size(reader->cbuf);
+    size_t buffer_size = zseek_buffer_capacity(reader->cbuf);
 
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {

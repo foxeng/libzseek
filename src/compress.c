@@ -675,9 +675,9 @@ bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
 
     // NOTE: This is an _estimate_ because the underlying compression lib may
     // buffer too in its context object.
-    size_t buffer_size = zseek_buffer_size(writer->cbuf);
+    size_t buffer_size = zseek_buffer_capacity(writer->cbuf);
     if (writer->type == ZSEEK_LZ4)
-        buffer_size += zseek_buffer_size(writer->ubuf);
+        buffer_size += zseek_buffer_capacity(writer->ubuf);
 
     *stats = (zseek_writer_stats_t) {
         .seek_table_size = seek_table_size,
