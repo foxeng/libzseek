@@ -185,8 +185,8 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
     writer->preferences.compressionLevel = compression_level;
     // Avoid unnecessary copies since we compress all at once anyway
     writer->preferences.autoFlush = 1;
-    // Allow block sizes of maximum supported size
-    writer->preferences.frameInfo.blockSizeID = LZ4F_max4MB;
+    // Use smaller block sizes to reduce buffering
+    writer->preferences.frameInfo.blockSizeID = LZ4F_max64KB;
 
     LZ4F_cctx *cctx;
     LZ4F_errorCode_t r = LZ4F_createCompressionContext(&cctx, LZ4F_VERSION);
