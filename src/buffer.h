@@ -61,7 +61,7 @@ bool zseek_buffer_reserve(zseek_buffer_t *buffer, size_t capacity);
 /**
  * Resizes @p buffer to @p size bytes.
  * If @p size is greater than current size, the additional space is
- * zero-initialized. If @p size is less than current size, the first @p size
+ * uninitialized. If @p size is less than current size, the first @p size
  * bytes are kept.
  *
  * Returns @a false on error.
