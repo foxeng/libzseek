@@ -108,8 +108,7 @@ bool zseek_buffer_resize(zseek_buffer_t *buffer, size_t size)
     if (!zseek_buffer_reserve(buffer, size))
         return false;
 
-    if (size > buffer->size)
-        memset((uint8_t*)buffer->data + buffer->size, 0, size - buffer->size);
+    // TODO OPT: zero-init new memory, if new size > old size, in debug builds?
 
     buffer->size = size;
 
