@@ -147,7 +147,8 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
     }
     writer->fl = fl;
 
-    zseek_buffer_t *cbuf = zseek_buffer_new(0);
+    size_t cbuf_len = ZSTD_compressBound(min_frame_size);
+    zseek_buffer_t *cbuf = zseek_buffer_new(cbuf_len);
     if (!cbuf) {
         set_error(errbuf, "buffer creation failed");
         goto fail_w_fl;
@@ -333,7 +334,9 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
         }
     }
 
-    size_t cbuf_len = 4096;
+    size_t cbuf_len = zseek_buffer_capacity(writer->cbuf);
+    if (cbuf_len < 4096)
+        cbuf_len = 4096;
     if (!zseek_buffer_resize(writer->cbuf, cbuf_len) && !is_error) {
         set_error(errbuf, "resize output buffer failed");
         is_error = true;
