@@ -18,7 +18,7 @@ size_t ZSTD_seekable_writeSeekTable(ZSTD_frameLog* fl, ZSTD_outBuffer* output);
  * Parse and return the seek table found in the last frame contained in @p fin,
  * or NULL on error.
  */
-ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file);
+ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data);
 /**
  * Free the seek table pointed to by @p st.
  */

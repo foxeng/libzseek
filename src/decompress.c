@@ -44,8 +44,10 @@ struct zseek_reader {
 };
 
 static ssize_t default_pread(void *data, size_t size, size_t offset,
-    void *user_data)
+    void *user_data, void *call_data)
 {
+    (void)call_data;
+
     FILE *fin = user_data;
 
     // Save current file position
@@ -74,8 +76,10 @@ static ssize_t default_pread(void *data, size_t size, size_t offset,
     return _read;
 }
 
-static ssize_t default_fsize(void *user_data)
+static ssize_t default_fsize(void *user_data, void *call_data)
 {
+    (void)call_data;
+
     FILE *f = user_data;
     int fd = fileno(f);
     if (fd == -1) {
@@ -93,7 +97,7 @@ static ssize_t default_fsize(void *user_data)
 }
 
 static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
-    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_reader_t *reader = malloc(sizeof(*reader));
     if (!reader) {
@@ -118,7 +122,7 @@ static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
 
     reader->user_file = user_file;
 
-    ZSTD_seekTable *st = read_seek_table(user_file);
+    ZSTD_seekTable *st = read_seek_table(user_file, call_data);
     if (!st) {
         set_error(errbuf, "read_seek_table failed");
         goto fail_w_lock;
@@ -156,7 +160,7 @@ fail:
 }
 
 static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
-    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_reader_t *reader = malloc(sizeof(*reader));
     if (!reader) {
@@ -183,7 +187,7 @@ static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
 
     reader->user_file = user_file;
 
-    ZSTD_seekTable *st = read_seek_table(user_file);
+    ZSTD_seekTable *st = read_seek_table(user_file, call_data);
     if (!st) {
         set_error(errbuf, "read_seek_table failed");
         goto fail_w_lock;
@@ -233,12 +237,12 @@ fail:
 }
 
 zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
-    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // Look for magic number in the file
     uint32_t magic_le;
     ssize_t _read = user_file.pread(&magic_le, sizeof(magic_le), 0,
-        user_file.user_data);
+        user_file.user_data, call_data);
     if (_read != (ssize_t)sizeof(magic_le)) {
         if (_read >= 0)
             set_error(errbuf, "unexpected EOF");
@@ -250,9 +254,11 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
 
     switch (le32toh(magic_le)) {
     case ZSTD_MAGIC:
-        return zseek_reader_open_full_zstd(user_file, cache_size, errbuf);
+        return zseek_reader_open_full_zstd(user_file, cache_size, call_data,
+            errbuf);
     case LZ4_MAGIC:
-        return zseek_reader_open_full_lz4(user_file, cache_size, errbuf);
+        return zseek_reader_open_full_lz4(user_file, cache_size, call_data,
+            errbuf);
     default:
         set_error(errbuf, "unrecognized file format");
         return NULL;
@@ -260,13 +266,13 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
 }
 
 zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_read_file_t user_file = {cfile, default_pread, default_fsize};
-    return zseek_reader_open_full(user_file, cache_size, errbuf);
+    return zseek_reader_open_full(user_file, cache_size, call_data, errbuf);
 }
 
-static bool zseek_reader_close_zstd(zseek_reader_t *reader,
+static bool zseek_reader_close_zstd(zseek_reader_t *reader, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     bool is_error = false;
@@ -291,9 +297,11 @@ static bool zseek_reader_close_zstd(zseek_reader_t *reader,
     return !is_error;
 }
 
-static bool zseek_reader_close_lz4(zseek_reader_t *reader,
+static bool zseek_reader_close_lz4(zseek_reader_t *reader, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)call_data;
+
     bool is_error = false;
 
     int pr = pthread_rwlock_destroy(&reader->lock);
@@ -317,16 +325,17 @@ static bool zseek_reader_close_lz4(zseek_reader_t *reader,
     return !is_error;
 }
 
-bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
+bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (!reader)
         return true;
 
     switch (reader->type) {
     case ZSEEK_ZSTD:
-        return zseek_reader_close_zstd(reader, errbuf);
+        return zseek_reader_close_zstd(reader, call_data, errbuf);
     case ZSEEK_LZ4:
-        return zseek_reader_close_lz4(reader, errbuf);
+        return zseek_reader_close_lz4(reader, call_data, errbuf);
     default:
         // BUG
         assert(false);
@@ -335,7 +344,7 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE])
 }
 
 static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO: Try to return as much as possible (multiple frames).
 
@@ -378,7 +387,7 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
             // Read compressed frame
             off_t frame_offset = frame_offset_c(reader->st, frame_idx);
             ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-                (size_t)frame_offset, reader->user_file.user_data);
+                (size_t)frame_offset, reader->user_file.user_data, call_data);
             if (_read != (ssize_t)frame_csize) {
                 if (_read >= 0)
                     set_error(errbuf, "unexpected EOF");
@@ -436,7 +445,8 @@ fail:
 }
 
 static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
-    size_t count, size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t count, size_t offset, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO OPT: Use the cache, only for reading?
 
@@ -461,7 +471,7 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
     // Read compressed frame
     off_t frame_offset = frame_offset_c(reader->st, frame_idx);
     ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-        (size_t)frame_offset, reader->user_file.user_data);
+        (size_t)frame_offset, reader->user_file.user_data, call_data);
     if (_read != (ssize_t)frame_csize) {
         if (_read >= 0)
             set_error(errbuf, "unexpected EOF");
@@ -544,13 +554,14 @@ fail:
 }
 
 static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO OPT: Try to return as much as possible (multiple frames), to avoid
     // the repeated fs read and zseek_read overhead?
 
     if (!reader->cache)
-        return zseek_pread_lz4_no_cache(reader, buf, count, offset, errbuf);
+        return zseek_pread_lz4_no_cache(reader, buf, count, offset, call_data,
+            errbuf);
 
     ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
     if (frame_idx == -1)
@@ -591,7 +602,7 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
             // Read compressed frame
             off_t frame_offset = frame_offset_c(reader->st, frame_idx);
             ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-                (size_t)frame_offset, reader->user_file.user_data);
+                (size_t)frame_offset, reader->user_file.user_data, call_data);
             if (_read != (ssize_t)frame_csize) {
                 if (_read >= 0)
                     set_error(errbuf, "unexpected EOF");
@@ -664,7 +675,7 @@ fail:
 }
 
 ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (!reader) {
         set_error(errbuf, "invalid reader");
@@ -673,9 +684,9 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 
     switch (reader->type) {
     case ZSEEK_ZSTD:
-        return zseek_pread_zstd(reader, buf, count, offset, errbuf);
+        return zseek_pread_zstd(reader, buf, count, offset, call_data, errbuf);
     case ZSEEK_LZ4:
-        return zseek_pread_lz4(reader, buf, count, offset, errbuf);
+        return zseek_pread_lz4(reader, buf, count, offset, call_data, errbuf);
     default:
         // BUG
         assert(false);
@@ -684,9 +695,10 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
 }
 
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    ssize_t ret = zseek_pread(reader, buf, count, reader->pos, errbuf);
+    ssize_t ret = zseek_pread(reader, buf, count, reader->pos, call_data,
+        errbuf);
     if (ret > 0)
         reader->pos += ret;
 

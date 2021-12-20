@@ -33,7 +33,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
     }
 
     char errbuf[ZSEEK_ERRBUF_SIZE];
-    zseek_reader_t *reader = zseek_reader_open(cfile, 1, errbuf);
+    zseek_reader_t *reader = zseek_reader_open(cfile, 1, NULL, errbuf);
     if (!reader) {
         fprintf(stderr, "decompress: zseek_reader_open: %s\n", errbuf);
         goto fail_w_cfile;
@@ -63,7 +63,8 @@ static bool decompress(const char *ufilename, const char *cfilename)
         size_t to_read = uread;
         while (to_read > 0) {
             ssize_t dread = zseek_pread(reader,
-                (uint8_t*)dbuf + (offset % buf_len), to_read, offset, errbuf);
+                (uint8_t*)dbuf + (offset % buf_len), to_read, offset, NULL,
+                    errbuf);
             if (dread == -1) {
                 fprintf(stderr, "decompress: zseek_pread: %s\n", errbuf);
                 goto fail_w_dbuf;
@@ -89,7 +90,7 @@ static bool decompress(const char *ufilename, const char *cfilename)
     free(dbuf);
     free(ubuf);
 
-    if (!zseek_reader_close(reader, errbuf)) {
+    if (!zseek_reader_close(reader, NULL, errbuf)) {
         fprintf(stderr, "decompress: zseek_reader_close: %s\n", errbuf);
         goto fail_w_cfile;
     }
@@ -111,7 +112,7 @@ fail_w_dbuf:
 fail_w_ubuf:
     free(ubuf);
 fail_w_reader:
-    zseek_reader_close(reader, errbuf);
+    zseek_reader_close(reader, NULL, errbuf);
 fail_w_cfile:
     fclose(cfile);
 fail_w_ufile:
@@ -157,7 +158,7 @@ static bool compress(const char *ufilename, const char *cfilename,
         goto fail_w_cfile;
     }
     zseek_writer_t *writer = zseek_writer_open(cfile, &param, MIN_FRAME_SIZE,
-        errbuf);
+        NULL, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         goto fail_w_cfile;
@@ -178,7 +179,7 @@ static bool compress(const char *ufilename, const char *cfilename,
             goto fail_w_buf;
         }
 
-        if (!zseek_write(writer, buf, uread, errbuf)) {
+        if (!zseek_write(writer, buf, uread, NULL, errbuf)) {
             fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
             goto fail_w_buf;
         }
@@ -187,7 +188,7 @@ static bool compress(const char *ufilename, const char *cfilename,
 
     free(buf);
 
-    if (!zseek_writer_close(writer, errbuf)) {
+    if (!zseek_writer_close(writer, NULL, errbuf)) {
         fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
         goto fail_w_cfile;
     }
@@ -207,7 +208,7 @@ static bool compress(const char *ufilename, const char *cfilename,
 fail_w_buf:
     free(buf);
 fail_w_writer:
-    zseek_writer_close(writer, errbuf);
+    zseek_writer_close(writer, NULL, errbuf);
 fail_w_cfile:
     fclose(cfile);
 fail_w_ufile:
