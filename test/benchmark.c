@@ -136,8 +136,11 @@ static void report(const results_t *r, int nb_workers, bool terse)
 /**
  * A custom write handler, counting bytes written.
  */
-static bool counting_write(const void *data, size_t size, void *user_data)
+static bool counting_write(const void *data, size_t size, void *user_data,
+    void *call_data)
 {
+    (void)call_data;
+
     counting_file_data_t *cfd = user_data;
     if (fwrite(data, 1, size, cfd->file) != size) {
         // perror("write to file");
@@ -225,7 +228,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     counting_file_data_t cfd = { .file = cfile };
     zseek_write_file_t zwf = { .user_data = &cfd, .write = counting_write };
     zseek_writer_t *writer = zseek_writer_open_full(zwf, &param, min_frame_size,
-        errbuf);
+        NULL, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);
         goto fail_w_cfile;
@@ -239,7 +242,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         }
 
         size_t len = MIN(buf_len - fpos, CHUNK_SIZE);
-        if (!zseek_write(writer, (uint8_t*)buf + fpos, len, errbuf)) {
+        if (!zseek_write(writer, (uint8_t*)buf + fpos, len, NULL, errbuf)) {
             fprintf(stderr, "compress: zseek_write: %s\n", errbuf);
             goto fail_w_writer;
         }
@@ -255,7 +258,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
     res->csize = cfd.written;
 
-    if (!zseek_writer_close(writer, errbuf)) {
+    if (!zseek_writer_close(writer, NULL, errbuf)) {
         fprintf(stderr, "compress: zseek_writer_close: %s\n", errbuf);
         goto fail_w_buf;
     }
@@ -285,7 +288,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     return res;
 
 fail_w_writer:
-    zseek_writer_close(writer, errbuf);
+    zseek_writer_close(writer, NULL, errbuf);
 fail_w_cfile:
     fclose(cfile);
 fail_w_buf:

@@ -35,8 +35,11 @@ struct zseek_writer {
     zseek_buffer_t *cbuf;
 };
 
-static bool default_write(const void *data, size_t size, void *user_data)
+static bool default_write(const void *data, size_t size, void *user_data,
+    void *call_data)
 {
+    (void)call_data;
+
     FILE *fout = user_data;
     if (fwrite(data, 1, size, fout) != size) {
         // perror("write to file");
@@ -46,9 +49,11 @@ static bool default_write(const void *data, size_t size, void *user_data)
 }
 
 static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size,
+	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
 	char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)call_data;
+
     int compression_level = ZSTD_CLEVEL_DEFAULT;
     ZSTD_strategy strategy = ZSTD_fast;
     if (zsp) {
@@ -167,9 +172,11 @@ fail:
 }
 
 static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size,
+	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
 	char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    (void)call_data;
+
     int compression_level = 0;
     if (zsp)
         compression_level = zsp->params.lz4_params.compression_level;
@@ -226,22 +233,22 @@ fail:
 }
 
 zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size,
+	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
 	char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // TODO OPT: Don't hard-code the default (zstd)?
     if (!zsp) {
         return zseek_writer_open_full_zstd(user_file, zsp, min_frame_size,
-            errbuf);
+            call_data, errbuf);
     }
 
     switch (zsp->type) {
     case ZSEEK_ZSTD:
         return zseek_writer_open_full_zstd(user_file, zsp, min_frame_size,
-            errbuf);
+            call_data, errbuf);
     case ZSEEK_LZ4:
         return zseek_writer_open_full_lz4(user_file, zsp, min_frame_size,
-            errbuf);
+            call_data, errbuf);
     default:
         set_error(errbuf, "wrong compression type (%d)", zsp->type);
         return NULL;
@@ -249,16 +256,17 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
 }
 
 zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
-    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t min_frame_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_write_file_t user_file = {cfile, default_write};
-    return zseek_writer_open_full(user_file, zsp, min_frame_size, errbuf);
+    return zseek_writer_open_full(user_file, zsp, min_frame_size, call_data,
+        errbuf);
 }
 
 /**
  * Flush, close and write current frame. This will block.
  */
-static bool end_frame_zstd(zseek_writer_t *writer)
+static bool end_frame_zstd(zseek_writer_t *writer, void *call_data)
 {
     // TODO: Communicate error info?
 
@@ -288,7 +296,7 @@ static bool end_frame_zstd(zseek_writer_t *writer)
 
         // Write output
         if (!writer->user_file.write(buffout.dst, buffout.pos,
-            writer->user_file.user_data)) {
+            writer->user_file.user_data, call_data)) {
 
             // TODO OPT: Use errno if user_file.write sets it
             // fprintf(stderr, "write to file failed");
@@ -313,13 +321,13 @@ static bool end_frame_zstd(zseek_writer_t *writer)
 }
 
 static bool zseek_writer_close_zstd(zseek_writer_t *writer,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     bool is_error = false;
 
     if (writer->frame_uc > 0) {
         // End final frame
-        if (!end_frame_zstd(writer)) {
+        if (!end_frame_zstd(writer, call_data)) {
             set_error(errbuf, "end_frame_zstd failed");
             is_error = true;
         }
@@ -345,7 +353,7 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
         }
 
         bool written = writer->user_file.write(buffout.dst, buffout.pos,
-            writer->user_file.user_data);
+            writer->user_file.user_data, call_data);
         if (!written && !is_error) {
             // TODO OPT: Use errno if user_file.write sets it
             set_error(errbuf, "write to file failed");
@@ -375,7 +383,7 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
 /**
  * Flush, close and write current frame. This will block.
  */
-static bool end_frame_lz4(zseek_writer_t *writer)
+static bool end_frame_lz4(zseek_writer_t *writer, void *call_data)
 {
     // TODO: Communicate error info?
 
@@ -407,9 +415,9 @@ static bool end_frame_lz4(zseek_writer_t *writer)
 
     // Write output
     if (!writer->user_file.write(cbuf_data, cdata_len,
-        writer->user_file.user_data)) {
+        writer->user_file.user_data, call_data)) {
 
-        // TODO OPT: Use errno if user_file.pread sets it
+        // TODO OPT: Use errno if user_file.write sets it
         // fprintf(stderr, "write to file failed");
         return false;
     }
@@ -433,13 +441,13 @@ static bool end_frame_lz4(zseek_writer_t *writer)
 }
 
 static bool zseek_writer_close_lz4(zseek_writer_t *writer,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     bool is_error = false;
 
     if (writer->frame_uc > 0) {
         // End final frame
-        if (!end_frame_lz4(writer)) {
+        if (!end_frame_lz4(writer, call_data)) {
             set_error(errbuf, "end_frame_lz4 failed");
             is_error = true;
         }
@@ -467,7 +475,7 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
         }
 
         bool written = writer->user_file.write(buffout.dst, buffout.pos,
-            writer->user_file.user_data);
+            writer->user_file.user_data, call_data);
         if (!written && !is_error) {
             // TODO OPT: Use errno if user_file.write sets it
             set_error(errbuf, "write to file failed");
@@ -490,16 +498,17 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
     return !is_error;
 }
 
-bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
+bool zseek_writer_close(zseek_writer_t *writer,  void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (!writer)
         return true;
 
     switch (writer->type) {
     case ZSEEK_ZSTD:
-        return zseek_writer_close_zstd(writer, errbuf);
+        return zseek_writer_close_zstd(writer, call_data, errbuf);
     case ZSEEK_LZ4:
-        return zseek_writer_close_lz4(writer, errbuf);
+        return zseek_writer_close_lz4(writer, call_data, errbuf);
     default:
         // BUG
         assert(false);
@@ -508,13 +517,13 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE])
 }
 
 static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
-    size_t len, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t len, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (writer->frame_uc >= writer->min_frame_size) {
         // End current frame
         // NOTE: This blocks, flushing data dispatched for compression in
         // previous calls.
-        if (!end_frame_zstd(writer)) {
+        if (!end_frame_zstd(writer, call_data)) {
             set_error(errbuf, "end_frame_zstd failed");
             return false;
         }
@@ -545,8 +554,8 @@ static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
 
         // Write output
         if (!writer->user_file.write(buffout.dst, buffout.pos,
-                writer->user_file.user_data)) {
-            // TODO OPT: Use errno if user_file.pread sets it
+                writer->user_file.user_data, call_data)) {
+            // TODO OPT: Use errno if user_file.write sets it
             set_error(errbuf, "write to file failed");
             return false;
         }
@@ -562,7 +571,7 @@ static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
  * Compress and write out a whole frame
  */
 static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
-    size_t len, char errbuf[ZSEEK_ERRBUF_SIZE])
+    size_t len, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     // Resize output buffer
     writer->preferences.frameInfo.contentSize = writer->frame_uc;
@@ -588,9 +597,9 @@ static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
 
     // Write output
     if (!writer->user_file.write(cbuf_data, cdata_len,
-        writer->user_file.user_data)) {
+        writer->user_file.user_data, call_data)) {
 
-        // TODO OPT: Use errno if user_file.pread sets it
+        // TODO OPT: Use errno if user_file.write sets it
         set_error(errbuf, "write to file failed");
         return false;
     }
@@ -613,12 +622,12 @@ static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
 }
 
 static bool zseek_write_lz4(zseek_writer_t *writer, const void *buf, size_t len,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (writer->frame_cm == 0 && len >= writer->min_frame_size) {
         // Compress frame directly from buf, to avoid copying
         // TODO OPT: Reuse end_frame_lz4 for this
-        return compress_frame_lz4(writer, buf, len, errbuf);
+        return compress_frame_lz4(writer, buf, len, call_data, errbuf);
     }
 
     // Buffer uncompressed data
@@ -630,7 +639,7 @@ static bool zseek_write_lz4(zseek_writer_t *writer, const void *buf, size_t len,
 
     if (writer->frame_uc >= writer->min_frame_size) {
         // End current frame
-        if (!end_frame_lz4(writer)) {
+        if (!end_frame_lz4(writer, call_data)) {
             set_error(errbuf, "end_frame_lz4 failed");
             return false;
         }
@@ -640,7 +649,7 @@ static bool zseek_write_lz4(zseek_writer_t *writer, const void *buf, size_t len,
 }
 
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (!writer) {
         set_error(errbuf, "invalid writer");
@@ -649,9 +658,9 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
 
     switch (writer->type) {
     case ZSEEK_ZSTD:
-        return zseek_write_zstd(writer, buf, len, errbuf);
+        return zseek_write_zstd(writer, buf, len, call_data, errbuf);
     case ZSEEK_LZ4:
-        return zseek_write_lz4(writer, buf, len, errbuf);
+        return zseek_write_lz4(writer, buf, len, call_data, errbuf);
     default:
         // BUG
         assert(false);

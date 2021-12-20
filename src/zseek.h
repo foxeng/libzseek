@@ -42,13 +42,16 @@
  *  The size of @p data
  * @param user_data
  *  The user-specified file handle
+ * @param call_data
+ *  The user-specified per-call data
  *
  * @retval true
  *  On success. @p size bytes from @p data written to the file.
  * @retval false
  *  On error
  */
-typedef bool (*zseek_write_t)(const void *data, size_t size, void *user_data);
+typedef bool (*zseek_write_t)(const void *data, size_t size, void *user_data,
+    void *call_data);
 
 /**
  * User-defined file supporting writes
@@ -71,6 +74,8 @@ typedef struct {
  *  The file offset to read from
  * @param user_data
  *  The user-specified file handle
+ * @param call_data
+ *  The user-specified per-call data
  *
  * @retval N>=0
  *  Number of bytes read and stored in @p data. May be less than @p size if EOF
@@ -79,20 +84,22 @@ typedef struct {
  *  On error
  */
 typedef ssize_t (*zseek_pread_t)(void *data, size_t size, size_t offset,
-    void *user_data);
+    void *user_data, void *call_data);
 
 /**
  * Pluggable file size handler
  *
  * @param user_data
  *  The user-specified file handle
+ * @param call_data
+ *  The user-specified per-call data
  *
  * @retval N>=0
  *  File size, in bytes
  * @retval <0
  *  On error
  */
-typedef ssize_t (*zseek_fsize_t)(void *user_data);
+typedef ssize_t (*zseek_fsize_t)(void *user_data, void *call_data);
 
 /**
  * User-defined file supporting reads
@@ -203,6 +210,8 @@ typedef struct {
  *	If @a NULL defaults are applied
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -212,7 +221,7 @@ typedef struct {
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-    zseek_compression_param_t *zsp, size_t min_frame_size,
+    zseek_compression_param_t *zsp, size_t min_frame_size, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -225,6 +234,8 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
  *	If @a NULL defaults are applied
  * @param min_frame_size
  *	Minimum (uncompressed) frame size
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -234,13 +245,15 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
-    size_t min_frame_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
+    size_t min_frame_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Closes a compressed file handle for writes
  *
  * @param writer
  *	Compressed file handle to close
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -250,7 +263,8 @@ zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
  *  On error. If not @a NULL, @p errbuf is populated with an error message. The
  *  @p reader is de-allocated and no longer usable.
  */
-bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
+bool zseek_writer_close(zseek_writer_t *writer, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 
 /**
@@ -268,6 +282,8 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *	Pointer to data to write
  * @param len
  *	Length of data pointed to by @p buf
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -277,7 +293,7 @@ bool zseek_writer_close(zseek_writer_t *writer, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
-    char errbuf[ZSEEK_ERRBUF_SIZE]);
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Returns currently available writer statistics
@@ -304,6 +320,8 @@ bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
  *  File to read compressed data from
  * @param cache_size
  *  Maximum number of decompressed frames to cache
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -313,7 +331,7 @@ bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
-    size_t cache_size, char errbuf[ZSEEK_ERRBUF_SIZE]);
+    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a reader for random access reads, with default file I/O
@@ -322,6 +340,8 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
  *  File to read compressed data from
  * @param cache_size
  *  Size of decompressed frames to cache
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -331,13 +351,15 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
-    char errbuf[ZSEEK_ERRBUF_SIZE]);
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Closes a compressed file handle for reads
  *
  * @param reader
  *	The compressed file reader to close
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -347,7 +369,8 @@ zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
  *	On error. If not @a NULL, @p errbuf is populated with an error message. The
  *  @p reader is de-allocated and no longer usable.
  */
-bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
+bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Reads data from an arbitrary offset of a compressed file
@@ -360,6 +383,8 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *	Size of decompressed data to read
  * @param offset
  *	Offset in the decompressed data to read data from
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -369,7 +394,7 @@ bool zseek_reader_close(zseek_reader_t *reader, char errbuf[ZSEEK_ERRBUF_SIZE]);
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
-    size_t offset, char errbuf[ZSEEK_ERRBUF_SIZE]);
+    size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Reads data from the current offset of a compressed file
@@ -382,6 +407,8 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  *	Buffer to store decompressed data
  * @param count
  *	Size of decompressed data to read
+ * @param call_data
+ *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
  *	Pointer to error message buffer or @a NULL
  *
@@ -391,7 +418,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
-    char errbuf[ZSEEK_ERRBUF_SIZE]);
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Returns currently available reader statistics
