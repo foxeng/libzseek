@@ -647,11 +647,71 @@ static bool zseek_write_zstd_mt(zseek_writer_t *writer, const void *buf,
     return true;
 }
 
+/**
+ * Compress and write out a whole frame
+ */
+static bool compress_frame_zstd(zseek_writer_t *writer, const void *buf,
+    size_t len, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
+{
+    // Resize output buffer
+    writer->preferences.frameInfo.contentSize = writer->frame_uc;
+    size_t max_cdata_len = ZSTD_compressBound(len);
+    if (!zseek_buffer_resize(writer->cbuf, max_cdata_len)) {
+        set_error(errbuf, "failed to resize output buffer");
+        return false;
+    }
+    void *cbuf_data = zseek_buffer_data(writer->cbuf);
+    assert(cbuf_data);
+    // Compress frame
+    size_t cdata_len = ZSTD_compress2(writer->cctx_zstd, cbuf_data,
+        max_cdata_len, buf, len);
+    if (ZSTD_isError(cdata_len)) {
+        set_error(errbuf, "%s: %s", "compress frame",
+            ZSTD_getErrorName(cdata_len));
+        return false;
+    }
+    // Correct buffer size (shrinks it, should not fail)
+    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
+    writer->frame_uc += len;
+    writer->frame_cm += cdata_len;
+
+    // Write output
+    if (!writer->user_file.write(cbuf_data, cdata_len,
+        writer->user_file.user_data, call_data)) {
+
+        // TODO OPT: Use errno if user_file.write sets it
+        set_error(errbuf, "write to file failed");
+        return false;
+    }
+
+    // Log frame
+    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
+        writer->frame_uc, 0);
+    if (ZSTD_isError(r)) {
+        set_error(errbuf, "log frame: %s\n", ZSTD_getErrorName(r));
+        return false;
+    }
+
+    // Reset buffers and counters
+    writer->total_cm += writer->frame_cm;
+    writer->frame_uc = 0;
+    writer->frame_cm = 0;
+    zseek_buffer_reset(writer->cbuf);
+
+    return true;
+}
+
 static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
     size_t len, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     if (writer->mt)
         return zseek_write_zstd_mt(writer, buf, len, call_data, errbuf);
+
+    if (writer->frame_cm == 0 && len >= writer->min_frame_size) {
+        // Compress frame directly from buf, to avoid copying
+        // TODO OPT: Reuse end_frame_zstd for this
+        return compress_frame_zstd(writer, buf, len, call_data, errbuf);
+    }
 
     // Buffer uncompressed data
     if (!zseek_buffer_push(writer->ubuf, buf, len)) {
