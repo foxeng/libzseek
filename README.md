@@ -8,6 +8,17 @@ with multithreading support for operations with >1 workers.
 
 # Build
 
+Using [meson](https://mesonbuild.com):
+
+```sh
+meson setup --buildtype builddir
+meson compile -C builddir
+# Run unit tests
+meson test -C builddir
+```
+
+or using autotools:
+
 ```sh
 autoreconf --install  # requires autoconf-archive
 ./configure
