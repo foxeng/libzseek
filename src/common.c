@@ -13,14 +13,14 @@ static const char *xstrerror_r(int errnum, char *buf, size_t buflen)
 
 #if (_POSIX_C_SOURCE >= 200112L) && !(defined(_GNU_SOURCE) && _GNU_SOURCE)
     // XSI-compliant
-    if (strerror_r(errnum, buf, 1024) == 0)
+    if (strerror_r(errnum, buf, buflen) == 0)
         errstr = buf;
     else
         errstr = "";
     // Assume buf is always NULL-terminated (not mentioned in the docs)
 #else
     // GNU-specific
-    errstr = strerror_r(errnum, buf, 1024);
+    errstr = strerror_r(errnum, buf, buflen);
 #endif
 
     return errstr;
