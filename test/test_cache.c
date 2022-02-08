@@ -140,9 +140,9 @@ START_TEST(test_cache_replace)
     for (int i = 0; i < 4; i++) {
         frames[i] = (zseek_frame_t){.idx = i, .len = 1024};
         frames[i].data = malloc(frames[i].len);
-        ck_assert_msg(frames[i].data != NULL, "failed to create frame %zu", i);
+        ck_assert_msg(frames[i].data != NULL, "failed to create frame %d", i);
         ck_assert_msg(zseek_cache_insert(cache, frames[i]),
-            "failed to insert frame %zu", i);
+            "failed to insert frame %d", i);
     }
 
     zseek_frame_t found = zseek_cache_find(cache, 0);

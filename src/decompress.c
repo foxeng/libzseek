@@ -294,8 +294,8 @@ zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     return zseek_reader_open_full(user_file, cache_size, call_data, errbuf);
 }
 
-static bool zseek_reader_close_zstd(zseek_reader_t *reader, void *call_data,
-    char errbuf[ZSEEK_ERRBUF_SIZE])
+static bool zseek_reader_close_zstd(zseek_reader_t *reader,
+    void *call_data __attribute__((unused)), char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     (void)call_data;
 
