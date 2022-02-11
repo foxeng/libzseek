@@ -5,9 +5,9 @@ includedir=@includedir@
 
 Name: libzseek
 Description: Random access decompression library
+URL: https://github.com/foxeng/libzseek
 Version: @VERSION@
-Requires:
 Requires.private: libzstd >= 1.4.9 liblz4 >= 1.8.3
 Libs: -L${libdir} -lzseek
-Libs.private: @ZSTD_LIBS@ @LZ4_LIBS@
+Libs.private: -pthread
 Cflags: -I${includedir}/
