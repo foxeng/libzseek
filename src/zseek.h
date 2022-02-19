@@ -28,6 +28,8 @@
 #include <sys/types.h>
 #include <sched.h>
 
+#define ZSEEK_EXPORT __attribute__ ((visibility("default")))
+
 /**
  * Error buffer size
  */
@@ -220,7 +222,7 @@ typedef struct {
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
+ZSEEK_EXPORT zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
     zseek_compression_param_t *zsp, size_t min_frame_size, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
@@ -244,7 +246,7 @@ zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
+ZSEEK_EXPORT zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
     size_t min_frame_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -263,7 +265,7 @@ zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
  *  On error. If not @a NULL, @p errbuf is populated with an error message. The
  *  @p reader is de-allocated and no longer usable.
  */
-bool zseek_writer_close(zseek_writer_t *writer, void *call_data,
+ZSEEK_EXPORT bool zseek_writer_close(zseek_writer_t *writer, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 
@@ -292,7 +294,7 @@ bool zseek_writer_close(zseek_writer_t *writer, void *call_data,
  * @retval false
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
+ZSEEK_EXPORT bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -310,7 +312,7 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
  * @retval false
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
+ZSEEK_EXPORT bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -330,7 +332,7 @@ bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
+ZSEEK_EXPORT zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
     size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -350,7 +352,7 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
  * @retval NULL
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
+ZSEEK_EXPORT zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -369,7 +371,7 @@ zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
  *	On error. If not @a NULL, @p errbuf is populated with an error message. The
  *  @p reader is de-allocated and no longer usable.
  */
-bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
+ZSEEK_EXPORT bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -393,7 +395,7 @@ bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
  * @retval -1
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
+ZSEEK_EXPORT ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -417,7 +419,7 @@ ssize_t zseek_pread(zseek_reader_t *reader, void *buf, size_t count,
  * @retval -1
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
+ZSEEK_EXPORT ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
     void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
@@ -437,7 +439,7 @@ ssize_t zseek_read(zseek_reader_t *reader, void *buf, size_t count,
  * @retval false
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
-bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
+ZSEEK_EXPORT bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
     char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 #endif
