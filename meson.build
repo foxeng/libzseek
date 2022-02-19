@@ -21,6 +21,7 @@ libzseek = library('zseek',
     'src/decompress.c',
     'src/seek_table.c',
     dependencies: [threads_dep, zstd_dep, lz4_dep],
+    gnu_symbol_visibility: 'hidden',
     install: true,
     soversion: '3.1.0')
 libzseek_dep = declare_dependency(
@@ -35,14 +36,20 @@ libzseek_benchmark = executable('libzseek_benchmark',
     'test/benchmark.c',
     dependencies: [libzseek_dep, m_dep])
 
+# Extract object file to use directly un-exported symbols. See
+# https://mesonbuild.com/Build-targets.html#object-files
+cache_o = libzseek.extract_objects('src/cache.c')
 test_cache = executable('test_cache',
     'test/test_cache.c',
-    dependencies: [libzseek_dep, check_dep])
+    dependencies: [check_dep],
+    objects: [cache_o])
 test('test_cache', test_cache)
 
+buffer_o = libzseek.extract_objects('src/buffer.c')
 test_buffer = executable('test_buffer',
     'test/test_buffer.c',
-    dependencies: [libzseek_dep, check_dep])
+    dependencies: [check_dep],
+    objects: [buffer_o])
 test('test_buffer', test_buffer)
 
 
