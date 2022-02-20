@@ -15,6 +15,8 @@ meson setup --buildtype builddir
 meson compile -C builddir
 # Run unit tests
 meson test -C builddir
+# Build Doxygen documentation
+meson compile -C builddir doc
 ```
 
 or using autotools:

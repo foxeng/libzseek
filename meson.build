@@ -55,9 +55,27 @@ test('test_buffer', test_buffer)
 
 install_headers('src/zseek.h')
 
+project_desc = 'Random access decompression library'
 pkg_mod = import('pkgconfig')
 pkg_mod.generate(libzseek,
-    description: 'Random access decompression library',
+    description: project_desc,
     filebase: 'libzseek',
     name: meson.project_name(),
     url: 'https://github.com/foxeng/libzseek')
+
+
+doxyfile = configure_file(input: 'Doxyfile.in',
+    output: 'Doxyfile',
+    configuration: {
+        'NAME': meson.project_name(),
+        'DESCRIPTION': project_desc,
+        'VERSION': meson.project_version(),
+        'TOP_SRCDIR': meson.project_source_root(),
+        'TOP_BUILDDIR': meson.project_build_root(),
+    },
+    install: false)
+doxygen = find_program('doxygen', disabler: true, required: false)
+doc_target = custom_target('doc',
+    input: doxyfile,
+    output: 'doc',
+    command: [doxygen, doxyfile])
