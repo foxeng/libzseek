@@ -1,6 +1,7 @@
 project('libzseek', 'c',
     default_options: ['c_std=c11', 'warning_level=3', 'werror=true'],
     license: 'BSD-3-Clause',
+    meson_version: '>=0.50.0',
     version: '3.0.2')
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 
@@ -70,10 +71,9 @@ doxyfile = configure_file(input: 'Doxyfile.in',
         'NAME': meson.project_name(),
         'DESCRIPTION': project_desc,
         'VERSION': meson.project_version(),
-        'TOP_SRCDIR': meson.project_source_root(),
-        'TOP_BUILDDIR': meson.project_build_root(),
-    },
-    install: false)
+        'TOP_SRCDIR': meson.current_source_dir(),
+        'TOP_BUILDDIR': meson.current_build_dir(),
+    })
 doxygen = find_program('doxygen', disabler: true, required: false)
 doc_target = custom_target('doc',
     input: doxyfile,
