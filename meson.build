@@ -1,7 +1,7 @@
 project('libzseek', 'c',
     default_options: ['c_std=c11', 'warning_level=3', 'werror=true'],
     license: 'BSD-3-Clause',
-    version: '3.2.0')
+    version: '3.0.2')
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 
 
@@ -23,7 +23,7 @@ libzseek = library('zseek',
     dependencies: [threads_dep, zstd_dep, lz4_dep],
     gnu_symbol_visibility: 'hidden',
     install: true,
-    soversion: '3.2.0')
+    version: '3.0.2')
 libzseek_dep = declare_dependency(
     include_directories: 'src',
     link_with: libzseek)
