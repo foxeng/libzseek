@@ -16,6 +16,10 @@
 #include "common.h"
 #include "buffer.h"
 
+// TODO: Make configurable (changes API)
+// TODO: Allow user hints for ste (also frame?) emission (changes API)
+#define DEFAULT_FRAMES_PER_STE 10
+
 struct zseek_writer {
     zseek_write_file_t user_file;
     zseek_compression_type_t type;
@@ -34,6 +38,11 @@ struct zseek_writer {
     ZSTD_frameLog *fl;
     zseek_buffer_t *ubuf;
     zseek_buffer_t *cbuf;
+
+    size_t frames_per_ste;  // Frames per seek table entry
+    size_t ste_frames;  // Current seek table entry frames
+    size_t ste_uc;      // Current seek table entry bytes (uncompressed)
+    size_t ste_cm;      // Current seek table entry bytes (compressed)
 };
 
 static bool default_write(const void *data, size_t size, void *user_data,
@@ -166,6 +175,8 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
 
     writer->user_file = user_file;
 
+    writer->frames_per_ste = DEFAULT_FRAMES_PER_STE;
+
     return writer;
 
 fail_w_fl:
@@ -232,6 +243,8 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
 
     writer->user_file = user_file;
 
+    writer->frames_per_ste = DEFAULT_FRAMES_PER_STE;
+
     return writer;
 
 fail_w_fl:
@@ -276,9 +289,11 @@ zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
 }
 
 /**
- * Flush, close and write current frame (multi-threaded). This will block.
+ * Flush, close and write current frame (multi-threaded). If @p force_ste, then
+ * force emitting a seek table entry. This will block.
  */
-static bool end_frame_zstd_mt(zseek_writer_t *writer, void *call_data)
+static bool end_frame_zstd_mt(zseek_writer_t *writer, void *call_data,
+    bool force_ste)
 {
     // TODO: Communicate error info?
 
@@ -316,12 +331,21 @@ static bool end_frame_zstd_mt(zseek_writer_t *writer, void *call_data)
         }
     } while (rem > 0);
 
-    // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
-    if (ZSTD_isError(r)) {
-        // fprintf(stderr, "log frame: %s\n", ZSTD_getErrorName(r));
-        return false;
+    writer->ste_frames++;
+    writer->ste_uc += writer->frame_uc;
+    writer->ste_cm += writer->frame_cm;
+    if (writer->ste_frames == writer->frames_per_ste || force_ste) {
+        // Log seek table entry
+        size_t r = ZSTD_seekable_logFrame(writer->fl, writer->ste_cm,
+            writer->ste_uc, 0);
+        if (ZSTD_isError(r)) {
+            // fprintf(stderr, "log seek table entry: %s\n", ZSTD_getErrorName(r));
+            return false;
+        }
+        // Reset seek table entry counters
+        writer->ste_frames = 0;
+        writer->ste_uc = 0;
+        writer->ste_cm = 0;
     }
 
     // Reset current frame bytes
@@ -333,14 +357,16 @@ static bool end_frame_zstd_mt(zseek_writer_t *writer, void *call_data)
 }
 
 /**
- * Flush, close and write current frame
+ * Flush, close and write current frame. If @p force_ste, then force emitting a
+ * seek table entry.
  */
-static bool end_frame_zstd(zseek_writer_t *writer, void *call_data)
+static bool end_frame_zstd(zseek_writer_t *writer, void *call_data,
+    bool force_ste)
 {
     // TODO: Communicate error info?
 
     if (writer->mt)
-        return end_frame_zstd_mt(writer, call_data);
+        return end_frame_zstd_mt(writer, call_data, force_ste);
 
     size_t ubuf_len = zseek_buffer_size(writer->ubuf);
     void *ubuf_data = zseek_buffer_data(writer->ubuf);
@@ -375,12 +401,21 @@ static bool end_frame_zstd(zseek_writer_t *writer, void *call_data)
         return false;
     }
 
-    // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
-    if (ZSTD_isError(r)) {
-        // fprintf(stderr, "log frame: %s\n", ZSTD_getErrorName(r));
-        return false;
+    writer->ste_frames++;
+    writer->ste_uc += writer->frame_uc;
+    writer->ste_cm += writer->frame_cm;
+    if (writer->ste_frames == writer->frames_per_ste || force_ste) {
+        // Log seek table entry
+        size_t r = ZSTD_seekable_logFrame(writer->fl, writer->ste_cm,
+            writer->ste_uc, 0);
+        if (ZSTD_isError(r)) {
+            // fprintf(stderr, "log seek table entry: %s\n", ZSTD_getErrorName(r));
+            return false;
+        }
+        // Reset seek table entry counters
+        writer->ste_frames = 0;
+        writer->ste_uc = 0;
+        writer->ste_cm = 0;
     }
 
     // Reset buffers and counters
@@ -400,7 +435,7 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
 
     if (writer->frame_uc > 0) {
         // End final frame
-        if (!end_frame_zstd(writer, call_data)) {
+        if (!end_frame_zstd(writer, call_data, true)) {
             set_error(errbuf, "end_frame_zstd failed");
             is_error = true;
         }
@@ -458,9 +493,11 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
 }
 
 /**
- * Flush, close and write current frame
+ * Flush, close and write current frame. If @p force_ste, then force emitting a
+ * seek table entry.
  */
-static bool end_frame_lz4(zseek_writer_t *writer, void *call_data)
+static bool end_frame_lz4(zseek_writer_t *writer, void *call_data,
+    bool force_ste)
 {
     // TODO: Communicate error info?
 
@@ -499,12 +536,21 @@ static bool end_frame_lz4(zseek_writer_t *writer, void *call_data)
         return false;
     }
 
-    // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
-    if (ZSTD_isError(r)) {
-        // fprintf(stderr, "log frame: %s\n", ZSTD_getErrorName(r));
-        return false;
+    writer->ste_frames++;
+    writer->ste_uc += writer->frame_uc;
+    writer->ste_cm += writer->frame_cm;
+    if (writer->ste_frames == writer->frames_per_ste || force_ste) {
+        // Log seek table entry
+        size_t r = ZSTD_seekable_logFrame(writer->fl, writer->ste_cm,
+            writer->ste_uc, 0);
+        if (ZSTD_isError(r)) {
+            // fprintf(stderr, "log seek table entry: %s\n", ZSTD_getErrorName(r));
+            return false;
+        }
+        // Reset seek table entry counters
+        writer->ste_frames = 0;
+        writer->ste_uc = 0;
+        writer->ste_cm = 0;
     }
 
     // Reset buffers and counters
@@ -524,7 +570,7 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
 
     if (writer->frame_uc > 0) {
         // End final frame
-        if (!end_frame_lz4(writer, call_data)) {
+        if (!end_frame_lz4(writer, call_data, true)) {
             set_error(errbuf, "end_frame_lz4 failed");
             is_error = true;
         }
@@ -603,7 +649,7 @@ static bool zseek_write_zstd_mt(zseek_writer_t *writer, const void *buf,
         // End current frame
         // NOTE: This blocks, flushing data dispatched for compression in
         // previous calls.
-        if (!end_frame_zstd(writer, call_data)) {
+        if (!end_frame_zstd(writer, call_data, false)) {
             set_error(errbuf, "end_frame_zstd failed");
             return false;
         }
@@ -684,12 +730,22 @@ static bool compress_frame_zstd(zseek_writer_t *writer, const void *buf,
         return false;
     }
 
-    // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
-    if (ZSTD_isError(r)) {
-        set_error(errbuf, "log frame: %s\n", ZSTD_getErrorName(r));
-        return false;
+    writer->ste_frames++;
+    writer->ste_uc += writer->frame_uc;
+    writer->ste_cm += writer->frame_cm;
+    if (writer->ste_frames == writer->frames_per_ste) {
+        // Log seek table entry
+        size_t r = ZSTD_seekable_logFrame(writer->fl, writer->ste_cm,
+            writer->ste_uc, 0);
+        if (ZSTD_isError(r)) {
+            set_error(errbuf, "log seek table entry: %s\n",
+                ZSTD_getErrorName(r));
+            return false;
+        }
+        // Reset seek table entry counters
+        writer->ste_frames = 0;
+        writer->ste_uc = 0;
+        writer->ste_cm = 0;
     }
 
     // Reset buffers and counters
@@ -722,7 +778,7 @@ static bool zseek_write_zstd(zseek_writer_t *writer, const void *buf,
 
     if (writer->frame_uc >= writer->min_frame_size) {
         // End current frame
-        if (!end_frame_zstd(writer, call_data)) {
+        if (!end_frame_zstd(writer, call_data, false)) {
             set_error(errbuf, "end_frame_zstd failed");
             return false;
         }
@@ -768,12 +824,22 @@ static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
         return false;
     }
 
-    // Log frame
-    size_t r = ZSTD_seekable_logFrame(writer->fl, writer->frame_cm,
-        writer->frame_uc, 0);
-    if (ZSTD_isError(r)) {
-        set_error(errbuf, "log frame: %s\n", ZSTD_getErrorName(r));
-        return false;
+    writer->ste_frames++;
+    writer->ste_uc += writer->frame_uc;
+    writer->ste_cm += writer->frame_cm;
+    if (writer->ste_frames == writer->frames_per_ste) {
+        // Log seek table entry
+        size_t r = ZSTD_seekable_logFrame(writer->fl, writer->ste_cm,
+            writer->ste_uc, 0);
+        if (ZSTD_isError(r)) {
+            set_error(errbuf, "log seek table entry: %s\n",
+                ZSTD_getErrorName(r));
+            return false;
+        }
+        // Reset seek table entry counters
+        writer->ste_frames = 0;
+        writer->ste_uc = 0;
+        writer->ste_cm = 0;
     }
 
     // Reset buffers and counters
@@ -803,7 +869,7 @@ static bool zseek_write_lz4(zseek_writer_t *writer, const void *buf, size_t len,
 
     if (writer->frame_uc >= writer->min_frame_size) {
         // End current frame
-        if (!end_frame_lz4(writer, call_data)) {
+        if (!end_frame_lz4(writer, call_data, false)) {
             set_error(errbuf, "end_frame_lz4 failed");
             return false;
         }
