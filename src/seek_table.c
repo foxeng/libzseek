@@ -184,7 +184,7 @@ void seek_table_free(ZSTD_seekTable *st)
     free(st);
 }
 
-ssize_t offset_to_frame_idx(ZSTD_seekTable *st, size_t offset)
+ssize_t offset_to_chunk_idx(ZSTD_seekTable *st, size_t offset)
 {
     if (offset >= st->entries[st->tableLen].dOffset)
         return -1;
@@ -201,28 +201,28 @@ ssize_t offset_to_frame_idx(ZSTD_seekTable *st, size_t offset)
     return lo;
 }
 
-off_t frame_offset_c(ZSTD_seekTable *st, size_t frame_idx)
+off_t chunk_offset_c(ZSTD_seekTable *st, size_t chunk_idx)
 {
-    assert(frame_idx < st->tableLen);
-    return st->entries[frame_idx].cOffset;
+    assert(chunk_idx < st->tableLen);
+    return st->entries[chunk_idx].cOffset;
 }
 
-off_t frame_offset_d(ZSTD_seekTable *st, size_t frame_idx)
+off_t chunk_offset_d(ZSTD_seekTable *st, size_t chunk_idx)
 {
-    assert(frame_idx < st->tableLen);
-    return st->entries[frame_idx].dOffset;
+    assert(chunk_idx < st->tableLen);
+    return st->entries[chunk_idx].dOffset;
 }
 
-size_t frame_size_c(ZSTD_seekTable *st, size_t frame_idx)
+size_t chunk_size_c(ZSTD_seekTable *st, size_t chunk_idx)
 {
-    assert(frame_idx < st->tableLen);
-    return st->entries[frame_idx + 1].cOffset - st->entries[frame_idx].cOffset;
+    assert(chunk_idx < st->tableLen);
+    return st->entries[chunk_idx + 1].cOffset - st->entries[chunk_idx].cOffset;
 }
 
-size_t frame_size_d(ZSTD_seekTable *st, size_t frame_idx)
+size_t chunk_size_d(ZSTD_seekTable *st, size_t chunk_idx)
 {
-    assert(frame_idx < st->tableLen);
-    return st->entries[frame_idx + 1].dOffset - st->entries[frame_idx].dOffset;
+    assert(chunk_idx < st->tableLen);
+    return st->entries[chunk_idx + 1].dOffset - st->entries[chunk_idx].dOffset;
 }
 
 size_t seek_table_memory_usage(const ZSTD_seekTable *st)
@@ -230,6 +230,7 @@ size_t seek_table_memory_usage(const ZSTD_seekTable *st)
     return sizeof(*st) + st->tableLen * sizeof(st->entries[0]);
 }
 
+// TODO: Should not be used for frame count
 size_t seek_table_entries(const ZSTD_seekTable *st)
 {
     return st->tableLen;
@@ -428,6 +429,7 @@ size_t framelog_memory_usage(const ZSTD_frameLog *fl)
     return sizeof(*fl) + fl->capacity * sizeof(fl->entries[0]);
 }
 
+// TODO: Should not be used for frame count
 size_t framelog_entries(const ZSTD_frameLog *fl)
 {
     return fl->size;

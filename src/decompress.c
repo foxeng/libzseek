@@ -380,8 +380,8 @@ static ssize_t zseek_pread_zstd_no_cache(zseek_reader_t *reader, void *buf,
 {
     // TODO OPT: Use the cache, only for reading?
 
-    ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
-    if (frame_idx == -1)
+    ssize_t chunk_idx = offset_to_chunk_idx(reader->st, offset);
+    if (chunk_idx == -1)
         return 0;
 
     int pr = pthread_rwlock_wrlock(&reader->lock);
@@ -391,18 +391,18 @@ static ssize_t zseek_pread_zstd_no_cache(zseek_reader_t *reader, void *buf,
     }
 
     // Resize compressed buffer
-    size_t frame_csize = frame_size_c(reader->st, frame_idx);
-    if (!zseek_buffer_resize(reader->cbuf, frame_csize)) {
+    size_t chunk_csize = chunk_size_c(reader->st, chunk_idx);
+    if (!zseek_buffer_resize(reader->cbuf, chunk_csize)) {
         set_error(errbuf, "resize compressed buffer");
         goto fail_w_lock;
     }
     void *cbuf_data = zseek_buffer_data(reader->cbuf);
     assert(cbuf_data);
-    // Read compressed frame
-    off_t frame_offset = frame_offset_c(reader->st, frame_idx);
-    ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-        (size_t)frame_offset, reader->user_file.user_data, call_data);
-    if (_read != (ssize_t)frame_csize) {
+    // Read compressed chunk
+    off_t chunk_offset = chunk_offset_c(reader->st, chunk_idx);
+    ssize_t _read = reader->user_file.pread(cbuf_data, chunk_csize,
+        (size_t)chunk_offset, reader->user_file.user_data, call_data);
+    if (_read != (ssize_t)chunk_csize) {
         if (_read >= 0)
             set_error(errbuf, "unexpected EOF");
         else
@@ -417,18 +417,18 @@ static ssize_t zseek_pread_zstd_no_cache(zseek_reader_t *reader, void *buf,
         goto fail_w_lock;
     }
     // Discard any excess leading data
-    ZSTD_inBuffer inb = { .src = cbuf_data, .size = frame_csize };
-    size_t offset_in_frame = offset - frame_offset_d(reader->st, frame_idx);
-    if (offset_in_frame > 0) {
+    ZSTD_inBuffer inb = { .src = cbuf_data, .size = chunk_csize };
+    size_t offset_in_chunk = offset - chunk_offset_d(reader->st, chunk_idx);
+    if (offset_in_chunk > 0) {
         // Resize discard buffer
-        if (!zseek_buffer_resize(reader->dbuf, offset_in_frame)) {
+        if (!zseek_buffer_resize(reader->dbuf, offset_in_chunk)) {
             set_error(errbuf, "resize discard buffer");
             goto fail_w_lock;
         }
         void *dbuf_data = zseek_buffer_data(reader->dbuf);
         assert(dbuf_data);
         // Decompress discard data
-        size_t to_decompress = offset_in_frame;
+        size_t to_decompress = offset_in_chunk;
         ZSTD_outBuffer outb = { .dst = dbuf_data, .size = to_decompress };
         while (outb.pos < outb.size) {
             r = ZSTD_decompressStream(reader->dstream_zstd, &outb, &inb);
@@ -441,8 +441,8 @@ static ssize_t zseek_pread_zstd_no_cache(zseek_reader_t *reader, void *buf,
     }
 
     // Decompress user data
-    size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-    size_t to_decompress = MIN(count, frame_dsize - offset_in_frame);
+    size_t chunk_dsize = chunk_size_d(reader->st, chunk_idx);
+    size_t to_decompress = MIN(count, chunk_dsize - offset_in_chunk);
     ZSTD_outBuffer outb = { .dst = buf, .size = to_decompress };
     while (outb.pos < outb.size) {
         r = ZSTD_decompressStream(reader->dstream_zstd, &outb, &inb);
@@ -470,15 +470,15 @@ fail:
 static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    // TODO OPT: Try to return as much as possible (multiple frames), to avoid
+    // TODO OPT: Try to return as much as possible (multiple chunks), to avoid
     // the repeated fs read and zseek_read overhead?
 
     if (!reader->cache)
         return zseek_pread_zstd_no_cache(reader, buf, count, offset, call_data,
             errbuf);
 
-    ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
-    if (frame_idx == -1)
+    ssize_t chunk_idx = offset_to_chunk_idx(reader->st, offset);
+    if (chunk_idx == -1)
         return 0;
 
     int pr = pthread_rwlock_rdlock(&reader->lock);
@@ -488,8 +488,10 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
     }
 
     void *dbuf = NULL;
-    zseek_frame_t frame = zseek_cache_find(reader->cache, frame_idx);
-    if (!frame.data) {
+    // TODO: Make it work with frames: use frame offset as id? Extend "equals"
+    // to "includes" (i.e. "is this offset cached")?
+    zseek_frame_t chunk = zseek_cache_find(reader->cache, chunk_idx);
+    if (!chunk.data) {
         // Upgrade to write lock
         pr = pthread_rwlock_unlock(&reader->lock);
         if (pr) {
@@ -502,22 +504,26 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
             goto fail;
         }
 
-        frame = zseek_cache_find(reader->cache, frame_idx);
-        if (!frame.data) {
+        chunk = zseek_cache_find(reader->cache, chunk_idx);
+        if (!chunk.data) {
             // Resize compressed buffer
-            size_t frame_csize = frame_size_c(reader->st, frame_idx);
-            if (!zseek_buffer_resize(reader->cbuf, frame_csize)) {
+            // TODO: Estimate compressed frame size _OR_
+            // read header, get dsize from it and use that as upper bound for csize?
+            size_t chunk_csize = chunk_size_c(reader->st, chunk_idx);
+            if (!zseek_buffer_resize(reader->cbuf, chunk_csize)) {
                 set_error(errbuf, "resize compressed buffer");
                 goto fail_w_lock;
             }
             void *cbuf_data = zseek_buffer_data(reader->cbuf);
             assert(cbuf_data);
 
-            // Read compressed frame
-            off_t frame_offset = frame_offset_c(reader->st, frame_idx);
-            ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-                (size_t)frame_offset, reader->user_file.user_data, call_data);
-            if (_read != (ssize_t)frame_csize) {
+            // Read compressed chunk
+            // TODO: Skip potentially mutliple frames to get at requested offset.
+            // Optimize for sequential reads, by remembering previous offset
+            off_t chunk_offset = chunk_offset_c(reader->st, chunk_idx);
+            ssize_t _read = reader->user_file.pread(cbuf_data, chunk_csize,
+                (size_t)chunk_offset, reader->user_file.user_data, call_data);
+            if (_read != (ssize_t)chunk_csize) {
                 if (_read >= 0)
                     set_error(errbuf, "unexpected EOF");
                 else
@@ -526,36 +532,38 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
                 goto fail_w_lock;
             }
 
-            // Decompress frame
-            size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-            dbuf = malloc(frame_dsize);
+            // Decompress chunk
+            // TODO: Get decompressed size
+            size_t chunk_dsize = chunk_size_d(reader->st, chunk_idx);
+            dbuf = malloc(chunk_dsize);
             if (!dbuf) {
                 set_error_with_errno(errbuf, "allocate decompressed buffer",
                     errno);
                 goto fail_w_lock;
             }
-            size_t r = ZSTD_decompressDCtx(reader->dctx_zstd, dbuf, frame_dsize,
-                cbuf_data, frame_csize);
+            size_t r = ZSTD_decompressDCtx(reader->dctx_zstd, dbuf, chunk_dsize,
+                cbuf_data, chunk_csize);
             if (ZSTD_isError(r)) {
-                set_error(errbuf, "%s: %s", "decompress frame",
+                set_error(errbuf, "%s: %s", "decompress chunk",
                     ZSTD_getErrorName(r));
                 goto fail_w_dbuf;
             }
 
-            // Cache frame
-            frame.data = dbuf;
-            frame.idx = frame_idx;
-            frame.len = frame_dsize;
-            if (!zseek_cache_insert(reader->cache, frame)) {
-                set_error(errbuf, "frame caching failed");
+            // Cache chunk
+            // TODO: Cache frame instead of chunk
+            chunk.data = dbuf;
+            chunk.idx = chunk_idx;
+            chunk.len = chunk_dsize;
+            if (!zseek_cache_insert(reader->cache, chunk)) {
+                set_error(errbuf, "chunk caching failed");
                 goto fail_w_dbuf;
             }
         }
     }
 
-    size_t offset_in_frame = offset - frame_offset_d(reader->st, frame_idx);
-    size_t to_copy = MIN(count, frame.len - offset_in_frame);
-    memcpy(buf, (uint8_t*)frame.data + offset_in_frame, to_copy);
+    size_t offset_in_chunk = offset - chunk_offset_d(reader->st, chunk_idx);
+    size_t to_copy = MIN(count, chunk.len - offset_in_chunk);
+    memcpy(buf, (uint8_t*)chunk.data + offset_in_chunk, to_copy);
 
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {
@@ -579,8 +587,8 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
 {
     // TODO OPT: Use the cache, only for reading?
 
-    ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
-    if (frame_idx == -1)
+    ssize_t chunk_idx = offset_to_chunk_idx(reader->st, offset);
+    if (chunk_idx == -1)
         return 0;
 
     int pr = pthread_rwlock_wrlock(&reader->lock);
@@ -590,18 +598,18 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
     }
 
     // Resize compressed buffer
-    size_t frame_csize = frame_size_c(reader->st, frame_idx);
-    if (!zseek_buffer_resize(reader->cbuf, frame_csize)) {
+    size_t chunk_csize = chunk_size_c(reader->st, chunk_idx);
+    if (!zseek_buffer_resize(reader->cbuf, chunk_csize)) {
         set_error(errbuf, "resize compressed buffer");
         goto fail_w_lock;
     }
     void *cbuf_data = zseek_buffer_data(reader->cbuf);
     assert(cbuf_data);
-    // Read compressed frame
-    off_t frame_offset = frame_offset_c(reader->st, frame_idx);
-    ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-        (size_t)frame_offset, reader->user_file.user_data, call_data);
-    if (_read != (ssize_t)frame_csize) {
+    // Read compressed chunk
+    off_t chunk_offset = chunk_offset_c(reader->st, chunk_idx);
+    ssize_t _read = reader->user_file.pread(cbuf_data, chunk_csize,
+        (size_t)chunk_offset, reader->user_file.user_data, call_data);
+    if (_read != (ssize_t)chunk_csize) {
         if (_read >= 0)
             set_error(errbuf, "unexpected EOF");
         else
@@ -612,10 +620,10 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
 
     // Discard any excess leading data
     size_t cbuf_offset = 0;
-    size_t offset_in_frame = offset - frame_offset_d(reader->st, frame_idx);
-    if (offset_in_frame > 0) {
+    size_t offset_in_chunk = offset - chunk_offset_d(reader->st, chunk_idx);
+    if (offset_in_chunk > 0) {
         // Resize discard buffer
-        if (!zseek_buffer_resize(reader->dbuf, offset_in_frame)) {
+        if (!zseek_buffer_resize(reader->dbuf, offset_in_chunk)) {
             set_error(errbuf, "resize discard buffer");
             goto fail_w_lock;
         }
@@ -623,9 +631,9 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
         assert(dbuf_data);
         // Decompress discard data
         size_t dbuf_offset = 0;
-        size_t to_decompress = offset_in_frame;
+        size_t to_decompress = offset_in_chunk;
         do {
-            size_t csize = frame_csize - cbuf_offset;
+            size_t csize = chunk_csize - cbuf_offset;
             size_t dsize = to_decompress - dbuf_offset;
             LZ4F_decompressOptions_t opts = { .stableDst = 0 };
             size_t r = LZ4F_decompress(reader->dctx_lz4,
@@ -644,10 +652,10 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
 
     // Decompress user data
     size_t buf_offset = 0;
-    size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-    size_t to_decompress = MIN(count, frame_dsize - offset_in_frame);
+    size_t chunk_dsize = chunk_size_d(reader->st, chunk_idx);
+    size_t to_decompress = MIN(count, chunk_dsize - offset_in_chunk);
     do {
-        size_t csize = frame_csize - cbuf_offset;
+        size_t csize = chunk_csize - cbuf_offset;
         size_t dsize = to_decompress - buf_offset;
         LZ4F_decompressOptions_t opts = { .stableDst = 0 };
         size_t r = LZ4F_decompress(reader->dctx_lz4,
@@ -663,8 +671,8 @@ static ssize_t zseek_pread_lz4_no_cache(zseek_reader_t *reader, void *buf,
         buf_offset += dsize;
     } while (buf_offset < to_decompress);
 
-    if (cbuf_offset < frame_csize) {
-        // Did not consume the whole frame, clean up decompression context
+    if (cbuf_offset < chunk_csize) {
+        // Did not consume the whole chunk, clean up decompression context
         LZ4F_resetDecompressionContext(reader->dctx_lz4);
     }
 
@@ -685,15 +693,15 @@ fail:
 static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
     size_t offset, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    // TODO OPT: Try to return as much as possible (multiple frames), to avoid
+    // TODO OPT: Try to return as much as possible (multiple chunks), to avoid
     // the repeated fs read and zseek_read overhead?
 
     if (!reader->cache)
         return zseek_pread_lz4_no_cache(reader, buf, count, offset, call_data,
             errbuf);
 
-    ssize_t frame_idx = offset_to_frame_idx(reader->st, offset);
-    if (frame_idx == -1)
+    ssize_t chunk_idx = offset_to_chunk_idx(reader->st, offset);
+    if (chunk_idx == -1)
         return 0;
 
     int pr = pthread_rwlock_rdlock(&reader->lock);
@@ -703,8 +711,8 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
     }
 
     void *dbuf = NULL;
-    zseek_frame_t frame = zseek_cache_find(reader->cache, frame_idx);
-    if (!frame.data) {
+    zseek_frame_t chunk = zseek_cache_find(reader->cache, chunk_idx);
+    if (!chunk.data) {
         // Upgrade to write lock
         pr = pthread_rwlock_unlock(&reader->lock);
         if (pr) {
@@ -717,22 +725,22 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
             goto fail;
         }
 
-        frame = zseek_cache_find(reader->cache, frame_idx);
-        if (!frame.data) {
+        chunk = zseek_cache_find(reader->cache, chunk_idx);
+        if (!chunk.data) {
             // Resize compressed buffer
-            size_t frame_csize = frame_size_c(reader->st, frame_idx);
-            if (!zseek_buffer_resize(reader->cbuf, frame_csize)) {
+            size_t chunk_csize = chunk_size_c(reader->st, chunk_idx);
+            if (!zseek_buffer_resize(reader->cbuf, chunk_csize)) {
                 set_error(errbuf, "resize compressed buffer");
                 goto fail_w_lock;
             }
             void *cbuf_data = zseek_buffer_data(reader->cbuf);
             assert(cbuf_data);
 
-            // Read compressed frame
-            off_t frame_offset = frame_offset_c(reader->st, frame_idx);
-            ssize_t _read = reader->user_file.pread(cbuf_data, frame_csize,
-                (size_t)frame_offset, reader->user_file.user_data, call_data);
-            if (_read != (ssize_t)frame_csize) {
+            // Read compressed chunk
+            off_t chunk_offset = chunk_offset_c(reader->st, chunk_idx);
+            ssize_t _read = reader->user_file.pread(cbuf_data, chunk_csize,
+                (size_t)chunk_offset, reader->user_file.user_data, call_data);
+            if (_read != (ssize_t)chunk_csize) {
                 if (_read >= 0)
                     set_error(errbuf, "unexpected EOF");
                 else
@@ -741,9 +749,9 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
                 goto fail_w_lock;
             }
 
-            // Decompress frame
-            size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-            dbuf = malloc(frame_dsize);
+            // Decompress chunk
+            size_t chunk_dsize = chunk_size_d(reader->st, chunk_idx);
+            dbuf = malloc(chunk_dsize);
             if (!dbuf) {
                 set_error_with_errno(errbuf, "allocate decompressed buffer",
                     errno);
@@ -751,9 +759,9 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
             }
             size_t cbuf_offset = 0;
             size_t dbuf_offset = 0;
-            size_t to_decompress = frame_dsize;
+            size_t to_decompress = chunk_dsize;
             do {
-                size_t csize = frame_csize - cbuf_offset;
+                size_t csize = chunk_csize - cbuf_offset;
                 size_t dsize = to_decompress - dbuf_offset;
                 LZ4F_decompressOptions_t opts = { .stableDst = 0 };
                 // NOTE: In theory, LZ4F_decompress may not finish the whole
@@ -764,7 +772,7 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
                     (uint8_t*)cbuf_data + cbuf_offset, &csize,
                     &opts); // NOTE: Overwrites dsize, csize.
                 if (LZ4F_isError(r)) {
-                    set_error(errbuf, "%s: %s", "decompress frame",
+                    set_error(errbuf, "%s: %s", "decompress chunk",
                         LZ4F_getErrorName(r));
                     goto fail_w_dbuf;
                 }
@@ -772,20 +780,20 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
                 dbuf_offset += dsize;
             } while (dbuf_offset < to_decompress);
 
-            // Cache frame
-            frame.data = dbuf;
-            frame.idx = frame_idx;
-            frame.len = frame_dsize;
-            if (!zseek_cache_insert(reader->cache, frame)) {
-                set_error(errbuf, "frame caching failed");
+            // Cache chunk
+            chunk.data = dbuf;
+            chunk.idx = chunk_idx;
+            chunk.len = chunk_dsize;
+            if (!zseek_cache_insert(reader->cache, chunk)) {
+                set_error(errbuf, "chunk caching failed");
                 goto fail_w_dbuf;
             }
         }
     }
 
-    size_t offset_in_frame = offset - frame_offset_d(reader->st, frame_idx);
-    size_t to_copy = MIN(count, frame.len - offset_in_frame);
-    memcpy(buf, (uint8_t*)frame.data + offset_in_frame, to_copy);
+    size_t offset_in_chunk = offset - chunk_offset_d(reader->st, chunk_idx);
+    size_t to_copy = MIN(count, chunk.len - offset_in_chunk);
+    memcpy(buf, (uint8_t*)chunk.data + offset_in_chunk, to_copy);
 
     pr = pthread_rwlock_unlock(&reader->lock);
     if (pr) {
@@ -855,13 +863,13 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
 
     size_t seek_table_memory = seek_table_memory_usage(reader->st);
 
-    size_t frames = seek_table_entries(reader->st);
+    size_t chunks = seek_table_entries(reader->st);
 
     size_t decompressed_size = seek_table_decompressed_size(reader->st);
 
     size_t cache_memory = zseek_cache_memory_usage(reader->cache);
 
-    size_t cached_frames = zseek_cache_entries(reader->cache);
+    size_t cached_chunks = zseek_cache_entries(reader->cache);
 
     // NOTE: This is an _estimate_ because the underlying compression lib may
     // buffer too in its context object.
@@ -878,12 +886,14 @@ bool zseek_reader_stats(zseek_reader_t *reader, zseek_reader_stats_t *stats,
         return false;
     }
 
+    // TODO: Change .frames, .cached frames to reflect chunks (or remove
+    // remove completely) (break API)
     *stats = (zseek_reader_stats_t) {
         .seek_table_memory = seek_table_memory,
-        .frames = frames,
+        .frames = chunks,
         .decompressed_size = decompressed_size,
         .cache_memory = cache_memory,
-        .cached_frames = cached_frames,
+        .cached_frames = cached_chunks,
         .buffer_size = buffer_size,
     };
 
