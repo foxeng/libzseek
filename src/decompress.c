@@ -751,15 +751,15 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
             }
             size_t cbuf_offset = 0;
             size_t dbuf_offset = 0;
-            size_t r = 0;
+            size_t to_decompress = frame_dsize;
             do {
                 size_t csize = frame_csize - cbuf_offset;
-                size_t dsize = frame_dsize - dbuf_offset;
+                size_t dsize = to_decompress - dbuf_offset;
                 LZ4F_decompressOptions_t opts = { .stableDst = 0 };
                 // NOTE: In theory, LZ4F_decompress may not finish the whole
                 // frame in one call (r > 0). In practice, this does not happen
                 // given enough room in the output buffer (e.g. here).
-                r = LZ4F_decompress(reader->dctx_lz4,
+                size_t r = LZ4F_decompress(reader->dctx_lz4,
                     (uint8_t*)dbuf + dbuf_offset, &dsize,
                     (uint8_t*)cbuf_data + cbuf_offset, &csize,
                     &opts); // NOTE: Overwrites dsize, csize.
@@ -770,7 +770,7 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
                 }
                 cbuf_offset += csize;
                 dbuf_offset += dsize;
-            } while (r > 0);
+            } while (dbuf_offset < to_decompress);
 
             // Cache frame
             frame.data = dbuf;
