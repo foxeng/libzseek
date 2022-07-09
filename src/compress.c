@@ -363,7 +363,8 @@ static bool end_frame_zstd(zseek_writer_t *writer, void *call_data)
         return false;
     }
     // Correct buffer size (shrinks it, should not fail)
-    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
+    bool br = zseek_buffer_resize(writer->cbuf, cdata_len);
+    assert(br);
     writer->frame_cm += cdata_len;
 
     // Write output
@@ -487,7 +488,8 @@ static bool end_frame_lz4(zseek_writer_t *writer, void *call_data)
         return false;
     }
     // Correct buffer size (shrinks it, should not fail)
-    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
+    bool br = zseek_buffer_resize(writer->cbuf, cdata_len);
+    assert(br);
     writer->frame_cm += cdata_len;
 
     // Write output
@@ -671,7 +673,8 @@ static bool compress_frame_zstd(zseek_writer_t *writer, const void *buf,
         return false;
     }
     // Correct buffer size (shrinks it, should not fail)
-    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
+    bool br = zseek_buffer_resize(writer->cbuf, cdata_len);
+    assert(br);
     writer->frame_uc += len;
     writer->frame_cm += cdata_len;
 
@@ -755,7 +758,8 @@ static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
         return false;
     }
     // Correct buffer size (shrinks it, should not fail)
-    assert(zseek_buffer_resize(writer->cbuf, cdata_len));
+    bool br = zseek_buffer_resize(writer->cbuf, cdata_len);
+    assert(br);
     writer->frame_uc += len;
     writer->frame_cm += cdata_len;
 
