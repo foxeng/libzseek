@@ -341,7 +341,7 @@ ZSEEK_EXPORT zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
  * @param cfile
  *  File to read compressed data from
  * @param cache_size
- *  Size of decompressed frames to cache
+ *  Maximum number of decompressed frames to cache
  * @param call_data
  *  The user-specified per-call data to pass to I/O callbacks
  * @param[out] errbuf
@@ -376,6 +376,8 @@ ZSEEK_EXPORT bool zseek_reader_close(zseek_reader_t *reader, void *call_data,
 
 /**
  * Reads data from an arbitrary offset of a compressed file
+ *
+ * This is safe to call concurrently
  *
  * @param reader
  *	Compressed file reader
