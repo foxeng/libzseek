@@ -12,6 +12,7 @@
 #include <sys/stat.h>   // stat
 #include <sys/time.h>
 #include <sys/resource.h>   // getrusage
+#include <liburing.h>   // io_uring*
 
 #include <zseek.h>
 
@@ -30,8 +31,26 @@ typedef struct results {
     size_t num_latencies;
 } results_t;
 
-typedef struct counting_file_data {
+typedef struct fwrite_data {
     FILE *file;
+} fwrite_data_t;
+
+typedef struct uring_data {
+    struct io_uring *ring;
+    int fd;
+} uring_data_t;
+
+typedef enum io_type {
+    IO_TYPE_FWRITE,
+    IO_TYPE_URING,
+} io_type_t;
+
+typedef struct counting_file_data {
+    io_type_t io_type;
+    union {
+        fwrite_data_t fwrite_data;
+        uring_data_t uring_data;
+    };
     off_t written;
 } counting_file_data_t;
 
@@ -132,16 +151,52 @@ static void report(const results_t *r, int nb_workers, bool terse)
     }
 }
 
-/**
- * A custom write handler, counting bytes written.
- */
-static bool counting_write(const void *data, size_t size, void *user_data,
-    void *call_data)
+static bool uring_write(const void *data, size_t size,
+    counting_file_data_t *cfd, void *call_data)
+{
+    // TODO OPT: Use a higher queue depth (2?)
+
+    (void)call_data;
+
+    uring_data_t *uring_data = &cfd->uring_data;
+    struct io_uring_sqe *sqe = io_uring_get_sqe(uring_data->ring);
+    if (sqe == NULL) {
+        // fprintf(stderr, "write to file: failed to get sqe\n");
+        return false;
+    }
+    io_uring_prep_write(sqe, uring_data->fd, data, (unsigned int)size, 0);
+    int r = io_uring_submit_and_wait(uring_data->ring, 1);
+    if (r < 0) {
+        // fprintf(stderr, "write to file: submit sqe: %s\n", strerror(-r));
+        return false;
+    }
+    struct io_uring_cqe *cqe = NULL;
+    r = io_uring_wait_cqe(uring_data->ring, &cqe);
+    if (r != 0) {
+        // fprintf(stderr, "write to file: wait cqe: %s\n", strerror(-r));
+        return false;
+    }
+    if (cqe->res < 0) {
+        // fprintf(stderr, "write to file: write: %s\n", strerror(-cqe->res));
+        return false;
+    } else if (cqe->res < (int)size) {
+        // fprintf(stderr, "write to file: written %d < %zu bytes\n", cqe->res,
+        //     size);
+        return false;
+    }
+    io_uring_cqe_seen(uring_data->ring, cqe);
+
+    cfd->written += size;
+    return true;
+}
+
+static bool fwrite_write(const void *data, size_t size,
+    counting_file_data_t *cfd, void *call_data)
 {
     (void)call_data;
 
-    counting_file_data_t *cfd = user_data;
-    if (fwrite(data, 1, size, cfd->file) != size) {
+    fwrite_data_t *fwrite_data = &cfd->fwrite_data;
+    if (fwrite(data, 1, size, fwrite_data->file) != size) {
         // perror("write to file");
         return false;
     }
@@ -150,10 +205,31 @@ static bool counting_write(const void *data, size_t size, void *user_data,
 }
 
 /**
+ * A custom write handler, counting bytes written.
+ */
+static bool counting_write(const void *data, size_t size,
+    void *user_data, void *call_data)
+{
+    counting_file_data_t *cfd = user_data;
+
+    switch (cfd->io_type) {
+    case IO_TYPE_FWRITE:
+        return fwrite_write(data, size, cfd, call_data);
+    case IO_TYPE_URING:
+        return uring_write(data, size, cfd, call_data);
+    default:
+        // BUG
+        assert(false);
+        return false;
+    }
+}
+
+/**
  * Compress the contents of @p ufilename to @p cfilename.
  */
 static results_t *compress(const char *ufilename, const char *cfilename,
-    int nb_workers, size_t min_frame_size, zseek_compression_type_t ctype)
+    int nb_workers, size_t min_frame_size, zseek_compression_type_t ctype,
+    io_type_t io_type)
 {
     // TODO OPT: mmap?
 
@@ -162,6 +238,7 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     FILE *ufile = NULL;
     void *buf = NULL;
     FILE *cfile = NULL;
+    struct io_uring *ring = NULL;
     zseek_writer_t *writer = NULL;
 
     // Read whole file into memory
@@ -231,7 +308,36 @@ static results_t *compress(const char *ufilename, const char *cfilename,
         assert(false);
         goto cleanup;
     }
-    counting_file_data_t cfd = { .file = cfile };
+
+    counting_file_data_t cfd = { 0 };
+    struct io_uring _ring;
+    switch (io_type) {
+    case IO_TYPE_FWRITE:
+        cfd.io_type = IO_TYPE_FWRITE;
+        cfd.fwrite_data.file = cfile;
+        break;
+    case IO_TYPE_URING: {
+        cfd.io_type = IO_TYPE_URING;
+        cfd.uring_data.fd = fileno(cfile);
+        if (cfd.uring_data.fd < 0) {
+            perror("compress: get file descriptor");
+            goto cleanup;
+        }
+        int r = io_uring_queue_init(1, &_ring, 0);
+        if (r != 0) {
+            fprintf(stderr, "compress: init ring: %s\n", strerror(-r));
+            goto cleanup;
+        }
+        cfd.uring_data.ring = &_ring;
+        ring = &_ring;
+        break;
+    }
+    default:
+        // BUG
+        assert(false);
+        goto cleanup;
+    }
+
     zseek_write_file_t zwf = { .user_data = &cfd, .write = counting_write };
     writer = zseek_writer_open_full(zwf, &param, min_frame_size,
         NULL, errbuf);
@@ -278,6 +384,8 @@ static results_t *compress(const char *ufilename, const char *cfilename,
 
 cleanup:
     zseek_writer_close(writer, NULL, errbuf);
+    if (ring)
+        io_uring_queue_exit(ring);
     if (cfile)
         fclose(cfile);
     free(buf);
@@ -289,10 +397,8 @@ cleanup:
 
 int main(int argc, char *argv[])
 {
-    if (argc < 5 || argc > 6) {
-        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
-            "(MiB) [-t]\n", argv[0]);
-        return 1;
+    if (argc < 6 || argc > 7) {
+        goto usage;
     }
 
     zseek_compression_type_t ctype;
@@ -301,34 +407,46 @@ int main(int argc, char *argv[])
     else if (strcmp(argv[1], "--lz4") == 0)
         ctype = ZSEEK_LZ4;
     else {
-        fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
-            "(MiB) [-t]\n", argv[0]);
-        return 1;
+        goto usage;
     }
 
-    const char *ufilename = argv[2];
+    io_type_t io_type;
+    if (strcmp(argv[2], "--fwrite") == 0)
+        io_type = IO_TYPE_FWRITE;
+    else if (strcmp(argv[2], "--uring") == 0)
+        io_type = IO_TYPE_URING;
+    else {
+        goto usage;
+    }
+
+    const char *ufilename = argv[3];
     const char *cfilename = "/dev/null";
 
-    int nb_workers = atoi(argv[3]);
-    size_t frame_size = atoi(argv[4]) * (1 << 20);
+    int nb_workers = atoi(argv[4]);
+    size_t frame_size = atoi(argv[5]) * (1 << 20);
 
     bool terse = false;
-    if (argc > 5) {
-        if (strcmp(argv[5], "-t") == 0)
+    if (argc > 6) {
+        if (strcmp(argv[6], "-t") == 0)
             terse = true;
         else {
-            fprintf(stderr, "Usage: %s --zstd|--lz4 INFILE nb_workers frame_size "
-                "(MiB) [-t]\n", argv[0]);
-            return 1;
+            goto usage;
         }
     }
 
     results_t *res = compress(ufilename, cfilename, nb_workers, frame_size,
-        ctype);
+        ctype, io_type);
     if (!res)
         return 1;
 
     report(res, nb_workers, terse);
 
     results_free(res);
+
+    return 0;
+
+usage:
+    fprintf(stderr, "Usage: %s --zstd|--lz4 --fwrite|--uring INFILE nb_workers "
+        "frame_size (MiB) [-t]\n", argv[0]);
+    return 1;
 }

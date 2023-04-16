@@ -10,6 +10,7 @@ threads_dep = dependency('threads')
 zstd_dep = dependency('libzstd', version: '>=1.4.9')
 lz4_dep = dependency('liblz4', version: '>=1.8.3')
 check_dep = dependency('check')
+uring_dep = dependency('liburing', version: '>=2.3')
 # From https://mesonbuild.com/howtox.html#add-math-library-lm-portably
 cc = meson.get_compiler('c')
 m_dep = cc.find_library('m', required : false)
@@ -36,7 +37,7 @@ libzseek_example = executable('libzseek_example',
     dependencies: libzseek_dep)
 libzseek_benchmark = executable('libzseek_benchmark',
     'test/benchmark.c',
-    dependencies: [libzseek_dep, m_dep])
+    dependencies: [libzseek_dep, m_dep, uring_dep])
 
 # Extract object file to use directly un-exported symbols. See
 # https://mesonbuild.com/Build-targets.html#object-files
