@@ -60,7 +60,6 @@ For multiple runs:
 # TODO
 
 - More tests: standalone, multi-threaded.
-- Pluggable memory management.
 - Dictionaries?
 - OPT: Stop relying on zstd's multi-threading?
   - Pro: could use vanilla-built zstd.

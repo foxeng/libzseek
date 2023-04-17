@@ -36,6 +36,64 @@
 #define ZSEEK_ERRBUF_SIZE 80
 
 /**
+ * Pluggable malloc handler
+ *
+ * @param size
+ *  The number of bytes to allocate
+ * @param zero
+ *  Whether to return zero-initialized memory or not
+ * @param user_data
+ *  The user-specified memory-management handle
+ *
+ * @retval p!=NULL
+ *  On success. Pointer to @p size bytes allocated.
+ * @retval NULL
+ *  On error
+ */
+typedef void *(*zseek_malloc_t)(size_t size, bool zero, void *user_data);
+
+/**
+ * Pluggable realloc handler
+ *
+ * @param ptr
+ *  The existing allocation to resize
+ * @param size
+ *  The new allocation size
+ * @param user_data
+ *  The user-specified memory-management handle
+ *
+ * @retval p!=NULL
+ *  On success. Pointer to new allocation.
+ * @retval NULL
+ *  On error
+ */
+typedef void *(*zseek_realloc_t)(void *ptr, size_t size, void *user_data);
+
+/**
+ * Pluggable free handler
+ *
+ * @param ptr
+ *  The existing allocation to free
+ * @param user_data
+ *  The user-specified memory-management handle
+ */
+typedef void (*zseek_free_t)(void *ptr, void *user_data);
+
+/**
+ * User-defined memory-management operations
+ */
+typedef struct {
+    /** Memory-management handle to use when calling below functions */
+    void *user_data;
+    /** Malloc function */
+    zseek_malloc_t malloc;
+    /** Realloc function */
+    zseek_realloc_t realloc;
+    /** Free function */
+    zseek_free_t free;
+} zseek_mm_t;
+
+/**
  * Pluggable write handler
  *
  * @param data
@@ -207,6 +265,8 @@ typedef struct {
  *
  * @param user_file
  *	File to write compressed data to
+ * @param mm
+ *	Memory-management operations
  * @param zsp
  *	Compression tunables and multi-threading controls.
  *	If @a NULL defaults are applied
@@ -223,8 +283,8 @@ typedef struct {
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ZSEEK_EXPORT zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-    zseek_compression_param_t *zsp, size_t min_frame_size, void *call_data,
-    char errbuf[ZSEEK_ERRBUF_SIZE]);
+    zseek_mm_t mm, zseek_compression_param_t *zsp, size_t min_frame_size,
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a compressed file for sequential writes, with default file I/O
@@ -320,6 +380,8 @@ ZSEEK_EXPORT bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_
  *
  * @param user_file
  *  File to read compressed data from
+ * @param mm
+ *	Memory-management operations
  * @param cache_size
  *  Maximum number of decompressed frames to cache
  * @param call_data
@@ -333,7 +395,8 @@ ZSEEK_EXPORT bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_
  *  On error. If not @a NULL, @p errbuf is populated with an error message.
  */
 ZSEEK_EXPORT zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
-    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
+    zseek_mm_t mm, size_t cache_size, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE]);
 
 /**
  * Creates a reader for random access reads, with default file I/O

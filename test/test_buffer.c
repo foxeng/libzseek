@@ -3,13 +3,18 @@
 #include <check.h>
 
 #include "../src/buffer.h"
+#include "../src/common.h"
 
 // TODO OPT: Mock malloc() / free()
 
 START_TEST(test_buffer_new)
 {
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
     size_t capacity = 5;
-    zseek_buffer_t *buffer = zseek_buffer_new(capacity);
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, capacity);
     ck_assert(buffer != NULL);
     ck_assert(zseek_buffer_capacity(buffer) >= capacity);
     ck_assert(zseek_buffer_size(buffer) == 0);
@@ -26,7 +31,11 @@ END_TEST
 
 START_TEST(test_buffer_push)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
 
     uint8_t data[] = {0, 1, 2, 3, 4};
@@ -45,7 +54,11 @@ END_TEST
 
 START_TEST(test_buffer_free)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
     uint8_t data[] = {0, 1, 2, 3, 4};
     ck_assert_msg(zseek_buffer_push(buffer, data, sizeof(data)),
@@ -63,7 +76,11 @@ END_TEST
 
 START_TEST(test_buffer_size)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
     uint8_t data[] = {0, 1, 2, 3, 4};
     ck_assert_msg(zseek_buffer_push(buffer, data, sizeof(data)),
@@ -83,8 +100,12 @@ END_TEST
 
 START_TEST(test_buffer_capacity)
 {
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
     size_t capacity = 4;
-    zseek_buffer_t *buffer = zseek_buffer_new(capacity);
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, capacity);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
 
     ck_assert(zseek_buffer_capacity(buffer) >= capacity);
@@ -101,7 +122,11 @@ END_TEST
 
 START_TEST(test_buffer_data)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
     uint8_t data[] = {0, 1, 2, 3, 4};
     ck_assert_msg(zseek_buffer_push(buffer, data, sizeof(data)),
@@ -121,7 +146,11 @@ END_TEST
 
 START_TEST(test_buffer_reserve)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
 
     size_t capacity = 6;
@@ -140,7 +169,11 @@ END_TEST
 
 START_TEST(test_buffer_resize)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
     uint8_t data[] = {0, 1, 2, 3, 4};
     ck_assert_msg(zseek_buffer_push(buffer, data, sizeof(data)),
@@ -162,7 +195,11 @@ END_TEST
 
 START_TEST(test_buffer_reset)
 {
-    zseek_buffer_t *buffer = zseek_buffer_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_buffer_t *buffer = zseek_buffer_new(mm, 0);
     ck_assert_msg(buffer != NULL, "failed to create buffer");
     uint8_t data[] = {0, 1, 2, 3, 4};
     ck_assert_msg(zseek_buffer_push(buffer, data, sizeof(data)),

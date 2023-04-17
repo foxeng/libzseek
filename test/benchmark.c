@@ -233,7 +233,8 @@ static results_t *compress(const char *ufilename, const char *cfilename,
     }
     counting_file_data_t cfd = { .file = cfile };
     zseek_write_file_t zwf = { .user_data = &cfd, .write = counting_write };
-    writer = zseek_writer_open_full(zwf, &param, min_frame_size,
+    zseek_mm_t zmm = { 0 };
+    writer = zseek_writer_open_full(zwf, zmm, &param, min_frame_size,
         NULL, errbuf);
     if (!writer) {
         fprintf(stderr, "compress: zseek_writer_open: %s\n", errbuf);

@@ -39,18 +39,19 @@ libzseek_benchmark = executable('libzseek_benchmark',
 
 # Extract object file to use directly un-exported symbols. See
 # https://mesonbuild.com/Build-targets.html#object-files
+common_o = libzseek.extract_objects('src/common.c')
 cache_o = libzseek.extract_objects('src/cache.c')
 test_cache = executable('test_cache',
     'test/test_cache.c',
     dependencies: [check_dep],
-    objects: [cache_o])
+    objects: [cache_o, common_o])
 test('test_cache', test_cache)
 
 buffer_o = libzseek.extract_objects('src/buffer.c')
 test_buffer = executable('test_buffer',
     'test/test_buffer.c',
     dependencies: [check_dep],
-    objects: [buffer_o])
+    objects: [buffer_o, common_o])
 test('test_buffer', test_buffer)
 
 

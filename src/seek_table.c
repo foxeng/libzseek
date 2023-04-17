@@ -2,7 +2,6 @@
 #include <stddef.h>     // size_t
 #include <stdbool.h>    // bool
 #include <limits.h>     // UINT_MAX
-#include <stdlib.h>     // malloc, realloc, free
 #include <assert.h>     // assert
 #include <string.h>     // memcpy
 
@@ -31,7 +30,8 @@ typedef uint32_t U32;
 typedef uint64_t U64;
 
 /* NOTE: The below two definitions are copied verbatim from
-zstd/contrib/seekable_format/zstdseek_decompress.c @ v1.5.0 */
+zstd/contrib/seekable_format/zstdseek_decompress.c @ v1.5.0, except for the
+pluggable memory management additions */
 
 typedef struct {
     U64 cOffset;
@@ -40,6 +40,8 @@ typedef struct {
 } seekEntry_t;
 
 struct ZSTD_seekTable_s {
+    zseek_mm_t *mm;
+
     seekEntry_t* entries;
     size_t tableLen;
 
@@ -59,14 +61,15 @@ static inline U32 MEM_readLE32(void const *memPtr)
     return le32toh(val32le);
 }
 
-static bool read_st_entries(zseek_read_file_t user_file, size_t entries_off,
-    seekEntry_t *entries, size_t num_entries, bool checksum, void *call_data)
+static bool read_st_entries(zseek_read_file_t user_file, zseek_mm_t *mm,
+    size_t entries_off, seekEntry_t *entries, size_t num_entries, bool checksum,
+    void *call_data)
 {
     size_t entry_size = SEEK_ENTRY_SIZE_NO_CHECKSUM +
         (checksum ? SEEK_ENTRY_CHECKSUM_SIZE : 0);
     size_t buf_len = SEEKKTABLE_BUF_SIZE -
         (SEEKKTABLE_BUF_SIZE % entry_size);    // fit whole # of entries
-    void *buf = malloc(buf_len);
+    void *buf = mm->malloc(buf_len, false, mm->user_data);
     if (!buf)
         goto cleanup;
 
@@ -100,15 +103,16 @@ static bool read_st_entries(zseek_read_file_t user_file, size_t entries_off,
     entries[num_entries].cOffset = c_offset;
     entries[num_entries].dOffset = d_offset;
 
-    free(buf);
+    mm->free(buf, mm->user_data);
     return true;
 
 cleanup:
-    free(buf);
+    mm->free(buf, mm->user_data);
     return false;
 }
 
-ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data)
+ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, zseek_mm_t *mm,
+    void *call_data)
 {
     // TODO: Communicate error info?
 
@@ -154,16 +158,18 @@ ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data)
         goto cleanup;
 
     // Read seek table
-    entries = malloc((num_frames + 1) * sizeof(entries[0]));
+    entries = mm->malloc((num_frames + 1) * sizeof(entries[0]), false,
+        mm->user_data);
     if (!entries)
         goto cleanup;
     size_t entries_off = fsize - seek_frame_size + ZSTD_SKIPPABLEHEADERSIZE;
-    if (!read_st_entries(user_file, entries_off, entries, num_frames, checksum,
-        call_data))
+    if (!read_st_entries(user_file, mm, entries_off, entries, num_frames,
+        checksum, call_data))
         goto cleanup;
-    ZSTD_seekTable *st = malloc(sizeof(*st));
+    ZSTD_seekTable *st = mm->malloc(sizeof(*st), false, mm->user_data);
     if (!st)
         goto cleanup;
+    st->mm = mm;
     st->entries = entries;
     st->tableLen = num_frames;
     st->checksumFlag = (int)checksum;
@@ -171,7 +177,7 @@ ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data)
     return st;
 
 cleanup:
-    free(entries);
+    mm->free(entries, mm->user_data);
     return NULL;
 }
 
@@ -180,8 +186,9 @@ void seek_table_free(ZSTD_seekTable *st)
     if (!st)
         return;
 
-    free(st->entries);
-    free(st);
+    zseek_mm_t *mm = st->mm;
+    mm->free(st->entries, mm->user_data);
+    mm->free(st, mm->user_data);
 }
 
 ssize_t offset_to_frame_idx(ZSTD_seekTable *st, size_t offset)
@@ -241,7 +248,8 @@ size_t seek_table_decompressed_size(const ZSTD_seekTable *st)
 }
 
 /* NOTE: The below are copied verbatim from
-zstd/contrib/seekable_format/zstdseek_compress.c @ v1.5.0 */
+zstd/contrib/seekable_format/zstdseek_compress.c @ v1.5.0, except for the
+pluggable memory management additions */
 
 typedef struct {
     U32 cSize;
@@ -250,6 +258,8 @@ typedef struct {
 } framelogEntry_t;
 
 struct ZSTD_frameLog_s {
+    zseek_mm_t *mm;
+
     framelogEntry_t* entries;
     U32 size;
     U32 capacity;
@@ -265,8 +275,9 @@ static size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
 {
     /* allocate some initial space */
     size_t const FRAMELOG_STARTING_CAPACITY = 16;
-    fl->entries = (framelogEntry_t*)malloc(
-            sizeof(framelogEntry_t) * FRAMELOG_STARTING_CAPACITY);
+    fl->entries = (framelogEntry_t*)fl->mm->malloc(
+            sizeof(framelogEntry_t) * FRAMELOG_STARTING_CAPACITY, false,
+            fl->mm->user_data);
     if (fl->entries == NULL) return ERROR(memory_allocation);
     fl->capacity = (U32)FRAMELOG_STARTING_CAPACITY;
     return 0;
@@ -274,20 +285,22 @@ static size_t ZSTD_seekable_frameLog_allocVec(ZSTD_frameLog* fl)
 
 static size_t ZSTD_seekable_frameLog_freeVec(ZSTD_frameLog* fl)
 {
-    if (fl != NULL) free(fl->entries);
+    if (fl != NULL) fl->mm->free(fl->entries, fl->mm->user_data);
     return 0;
 }
 
-ZSTD_frameLog* ZSTD_seekable_createFrameLog(int checksumFlag)
+ZSTD_frameLog* ZSTD_seekable_createFrameLog(zseek_mm_t *mm, int checksumFlag)
 {
-    ZSTD_frameLog* const fl = (ZSTD_frameLog*)malloc(sizeof(ZSTD_frameLog));
+    ZSTD_frameLog* const fl = (ZSTD_frameLog*)mm->malloc(sizeof(ZSTD_frameLog),
+        false, mm->user_data);
     if (fl == NULL) return NULL;
 
     if (ZSTD_isError(ZSTD_seekable_frameLog_allocVec(fl))) {
-        free(fl);
+        mm->free(fl, mm->user_data);
         return NULL;
     }
 
+    fl->mm = mm;
     fl->checksumFlag = checksumFlag;
     fl->seekTablePos = 0;
     fl->seekTableIndex = 0;
@@ -299,7 +312,8 @@ ZSTD_frameLog* ZSTD_seekable_createFrameLog(int checksumFlag)
 size_t ZSTD_seekable_freeFrameLog(ZSTD_frameLog* fl)
 {
     ZSTD_seekable_frameLog_freeVec(fl);
-    free(fl);
+    zseek_mm_t *mm = fl->mm;
+    mm->free(fl, mm->user_data);
     return 0;
 }
 
@@ -315,8 +329,9 @@ size_t ZSTD_seekable_logFrame(ZSTD_frameLog* fl,
     if (fl->size == fl->capacity) {
         /* exponential size increase for constant amortized runtime */
         size_t const newCapacity = fl->capacity * 2;
-        framelogEntry_t* const newEntries = (framelogEntry_t*)realloc(fl->entries,
-                sizeof(framelogEntry_t) * newCapacity);
+        framelogEntry_t* const newEntries = (framelogEntry_t*)fl->mm->realloc(
+                fl->entries, sizeof(framelogEntry_t) * newCapacity,
+                fl->mm->user_data);
 
         if (newEntries == NULL) return ERROR(memory_allocation);
 

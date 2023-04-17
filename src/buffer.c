@@ -1,28 +1,28 @@
-#include <stdlib.h>     // malloc, realloc, free
-#include <string.h>     // memset, memmove
+#include <string.h>     // memmove
 
 #include "buffer.h"
 
 struct zseek_buffer {
+    zseek_mm_t *mm;
     void *data;
     size_t size;
     size_t capacity;
 };
 
-zseek_buffer_t *zseek_buffer_new(size_t capacity)
+zseek_buffer_t *zseek_buffer_new(zseek_mm_t *mm, size_t capacity)
 {
-    zseek_buffer_t *buffer = malloc(sizeof(*buffer));
+    zseek_buffer_t *buffer = mm->malloc(sizeof(*buffer), true, mm->user_data);
     if (!buffer)
         goto cleanup;
-    memset(buffer, 0, sizeof(*buffer));
 
+    buffer->mm = mm;
     if (!zseek_buffer_reserve(buffer, capacity))
         goto cleanup;
 
     return buffer;
 
 cleanup:
-    free(buffer);
+    mm->free(buffer, mm->user_data);
     return NULL;
 }
 
@@ -31,8 +31,9 @@ void zseek_buffer_free(zseek_buffer_t *buffer)
     if (!buffer)
         return;
 
-    free(buffer->data);
-    free(buffer);
+    zseek_mm_t *mm = buffer->mm;
+    mm->free(buffer->data, mm->user_data);
+    mm->free(buffer, mm->user_data);
 }
 
 size_t zseek_buffer_size(zseek_buffer_t *buffer)
@@ -90,7 +91,8 @@ bool zseek_buffer_reserve(zseek_buffer_t *buffer, size_t capacity)
     if (capacity > new_capacity)
         new_capacity = capacity;
 
-    void *new_data = realloc(buffer->data, new_capacity);
+    void *new_data = buffer->mm->realloc(buffer->data, new_capacity,
+        buffer->mm->user_data);
     if (!new_data)
         return false;
     buffer->data = new_data;

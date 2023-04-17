@@ -2,9 +2,7 @@
 #include <stddef.h>     // size_t
 #include <stdint.h>     // uint*_t
 #include <stdio.h>      // I/O
-#include <stdlib.h>     // malloc, free
-#include <errno.h>      // errno
-#include <string.h>     // memset
+#include <string.h>     // memcpy
 #include <pthread.h>    // pthread_mutex*
 #include <assert.h>     // assert
 
@@ -26,6 +24,7 @@
 
 struct zseek_reader {
     zseek_read_file_t user_file;
+    zseek_mm_t mm;
     zseek_compression_type_t type;
     union {
         // TODO: If there's contention, use one dctx per read()
@@ -98,14 +97,15 @@ static ssize_t default_fsize(void *user_data, void *call_data)
 }
 
 static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
-    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
+    zseek_mm_t mm, size_t cache_size, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    zseek_reader_t *reader = malloc(sizeof(*reader));
+    zseek_reader_t *reader = mm.malloc(sizeof(*reader), true, mm.user_data);
     if (!reader) {
-        set_error_with_errno(errbuf, "allocate reader", errno);
+        // TODO OPT: Use errno if mm.malloc sets it
+        set_error(errbuf, "reader allocation failed");
         goto fail;
     }
-    memset(reader, 0, sizeof(*reader));
     reader->type = ZSEEK_ZSTD;
 
     ZSTD_DCtx *dctx = ZSTD_createDCtx();
@@ -129,8 +129,9 @@ static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
     }
 
     reader->user_file = user_file;
+    reader->mm = mm;
 
-    ZSTD_seekTable *st = read_seek_table(user_file, call_data);
+    ZSTD_seekTable *st = read_seek_table(user_file, &reader->mm, call_data);
     if (!st) {
         set_error(errbuf, "read_seek_table failed");
         goto fail_w_lock;
@@ -139,7 +140,7 @@ static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
 
     zseek_cache_t *cache = NULL;
     if (cache_size > 0) {
-        cache = zseek_cache_new(cache_size);
+        cache = zseek_cache_new(&reader->mm, cache_size);
         if (!cache) {
             set_error(errbuf, "cache creation failed");
             goto fail_w_st;
@@ -147,14 +148,14 @@ static zseek_reader_t *zseek_reader_open_full_zstd(zseek_read_file_t user_file,
     }
     reader->cache = cache;
 
-    zseek_buffer_t *cbuf = zseek_buffer_new(0);
+    zseek_buffer_t *cbuf = zseek_buffer_new(&reader->mm, 0);
     if (!cbuf) {
         set_error(errbuf, "buffer creation failed");
         goto fail_w_cache;
     }
     reader->cbuf = cbuf;
 
-    zseek_buffer_t *dbuf = zseek_buffer_new(0);
+    zseek_buffer_t *dbuf = zseek_buffer_new(&reader->mm, 0);
     if (!dbuf) {
         set_error(errbuf, "discard buffer creation failed");
         goto fail_w_cbuf;
@@ -176,20 +177,21 @@ fail_w_dstream:
 fail_w_dctx:
     ZSTD_freeDCtx(dctx);
 fail_w_reader:
-    free(reader);
+    mm.free(reader, mm.user_data);
 fail:
     return NULL;
 }
 
 static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
-    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
+    zseek_mm_t mm, size_t cache_size, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
-    zseek_reader_t *reader = malloc(sizeof(*reader));
+    zseek_reader_t *reader = mm.malloc(sizeof(*reader), true, mm.user_data);
     if (!reader) {
-        set_error_with_errno(errbuf, "allocate reader", errno);
+        // TODO OPT: Use errno if mm.malloc sets it
+        set_error(errbuf, "reader allocation failed");
         goto fail;
     }
-    memset(reader, 0, sizeof(*reader));
     reader->type = ZSEEK_LZ4;
 
     LZ4F_dctx *dctx;
@@ -208,8 +210,9 @@ static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
     }
 
     reader->user_file = user_file;
+    reader->mm = mm;
 
-    ZSTD_seekTable *st = read_seek_table(user_file, call_data);
+    ZSTD_seekTable *st = read_seek_table(user_file, &reader->mm, call_data);
     if (!st) {
         set_error(errbuf, "read_seek_table failed");
         goto fail_w_lock;
@@ -218,7 +221,7 @@ static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
 
     zseek_cache_t *cache = NULL;
     if (cache_size > 0) {
-        cache = zseek_cache_new(cache_size);
+        cache = zseek_cache_new(&reader->mm, cache_size);
         if (!cache) {
             set_error(errbuf, "cache creation failed");
             goto fail_w_st;
@@ -226,14 +229,14 @@ static zseek_reader_t *zseek_reader_open_full_lz4(zseek_read_file_t user_file,
     }
     reader->cache = cache;
 
-    zseek_buffer_t *cbuf = zseek_buffer_new(0);
+    zseek_buffer_t *cbuf = zseek_buffer_new(&reader->mm, 0);
     if (!cbuf) {
         set_error(errbuf, "buffer creation failed");
         goto fail_w_cache;
     }
     reader->cbuf = cbuf;
 
-    zseek_buffer_t *dbuf = zseek_buffer_new(0);
+    zseek_buffer_t *dbuf = zseek_buffer_new(&reader->mm, 0);
     if (!dbuf) {
         set_error(errbuf, "discard buffer creation failed");
         goto fail_w_cbuf;
@@ -253,14 +256,17 @@ fail_w_lock:
 fail_w_dctx:
     LZ4F_freeDecompressionContext(dctx);
 fail_w_reader:
-    free(reader);
+    mm.free(reader, mm.user_data);
 fail:
     return NULL;
 }
 
 zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
-    size_t cache_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
+    zseek_mm_t mm, size_t cache_size, void *call_data,
+    char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    init_mm(&mm);
+
     // Look for magic number in the file
     uint32_t magic_le;
     ssize_t _read = user_file.pread(&magic_le, sizeof(magic_le), 0,
@@ -276,10 +282,10 @@ zseek_reader_t *zseek_reader_open_full(zseek_read_file_t user_file,
 
     switch (le32toh(magic_le)) {
     case ZSTD_MAGIC:
-        return zseek_reader_open_full_zstd(user_file, cache_size, call_data,
+        return zseek_reader_open_full_zstd(user_file, mm, cache_size, call_data,
             errbuf);
     case LZ4_MAGIC:
-        return zseek_reader_open_full_lz4(user_file, cache_size, call_data,
+        return zseek_reader_open_full_lz4(user_file, mm, cache_size, call_data,
             errbuf);
     default:
         set_error(errbuf, "unrecognized file format");
@@ -291,7 +297,8 @@ zseek_reader_t *zseek_reader_open(FILE *cfile, size_t cache_size,
     void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_read_file_t user_file = {cfile, default_pread, default_fsize};
-    return zseek_reader_open_full(user_file, cache_size, call_data, errbuf);
+    zseek_mm_t mm = { 0 };
+    return zseek_reader_open_full(user_file, mm, cache_size, call_data, errbuf);
 }
 
 static bool zseek_reader_close_zstd(zseek_reader_t *reader,
@@ -323,7 +330,8 @@ static bool zseek_reader_close_zstd(zseek_reader_t *reader,
     zseek_buffer_free(reader->cbuf);
     zseek_cache_free(reader->cache);
     seek_table_free(reader->st);
-    free(reader);
+    zseek_mm_t mm = reader->mm;
+    mm.free(reader, mm.user_data);
 
     return !is_error;
 }
@@ -351,7 +359,8 @@ static bool zseek_reader_close_lz4(zseek_reader_t *reader, void *call_data,
     zseek_buffer_free(reader->cbuf);
     zseek_cache_free(reader->cache);
     seek_table_free(reader->st);
-    free(reader);
+    zseek_mm_t mm = reader->mm;
+    mm.free(reader, mm.user_data);
 
     return !is_error;
 }
@@ -528,10 +537,10 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
 
             // Decompress frame
             size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-            dbuf = malloc(frame_dsize);
+            dbuf = reader->mm.malloc(frame_dsize, false, reader->mm.user_data);
             if (!dbuf) {
-                set_error_with_errno(errbuf, "allocate decompressed buffer",
-                    errno);
+                // TODO OPT: Use errno if mm.malloc sets it
+                set_error(errbuf, "decompressed buffer allocation failed");
                 goto fail_w_lock;
             }
             size_t r = ZSTD_decompressDCtx(reader->dctx_zstd, dbuf, frame_dsize,
@@ -566,7 +575,7 @@ static ssize_t zseek_pread_zstd(zseek_reader_t *reader, void *buf, size_t count,
     return to_copy;
 
 fail_w_dbuf:
-    free(dbuf);
+    reader->mm.free(dbuf, reader->mm.user_data);
 fail_w_lock:
     pthread_rwlock_unlock(&reader->lock);
 fail:
@@ -743,10 +752,10 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
 
             // Decompress frame
             size_t frame_dsize = frame_size_d(reader->st, frame_idx);
-            dbuf = malloc(frame_dsize);
+            dbuf = reader->mm.malloc(frame_dsize, false, reader->mm.user_data);
             if (!dbuf) {
-                set_error_with_errno(errbuf, "allocate decompressed buffer",
-                    errno);
+                // TODO OPT: Use errno if mm.malloc sets it
+                set_error(errbuf, "decompressed buffer allocation failed");
                 goto fail_w_lock;
             }
             size_t cbuf_offset = 0;
@@ -796,7 +805,7 @@ static ssize_t zseek_pread_lz4(zseek_reader_t *reader, void *buf, size_t count,
     return to_copy;
 
 fail_w_dbuf:
-    free(dbuf);
+    reader->mm.free(dbuf, reader->mm.user_data);
 fail_w_lock:
     pthread_rwlock_unlock(&reader->lock);
 fail:

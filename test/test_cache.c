@@ -3,19 +3,28 @@
 #include <check.h>
 
 #include "../src/cache.h"
+#include "../src/common.h"
 
 // TODO OPT: Mock malloc() / free()
 
 START_TEST(test_cache_new_null)
 {
-    zseek_cache_t *cache = zseek_cache_new(0);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 0);
     ck_assert(cache == NULL);
 }
 END_TEST
 
 START_TEST(test_cache_new)
 {
-    zseek_cache_t *cache = zseek_cache_new(3);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 3);
     ck_assert(cache != NULL);
 
     zseek_cache_free(cache);
@@ -31,7 +40,11 @@ END_TEST
 
 START_TEST(test_cache_insert)
 {
-    zseek_cache_t *cache = zseek_cache_new(2);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 2);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);
@@ -51,7 +64,11 @@ END_TEST
 
 START_TEST(test_cache_free)
 {
-    zseek_cache_t *cache = zseek_cache_new(4);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 4);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);
@@ -82,7 +99,11 @@ END_TEST
 
 START_TEST(test_cache_find_empty)
 {
-    zseek_cache_t *cache = zseek_cache_new(1);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 1);
     ck_assert_msg(cache != NULL, "failed to create cache");
 
     zseek_frame_t found = zseek_cache_find(cache, 1);
@@ -94,7 +115,11 @@ END_TEST
 
 START_TEST(test_cache_find_present)
 {
-    zseek_cache_t *cache = zseek_cache_new(2);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 2);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);
@@ -112,7 +137,11 @@ END_TEST
 
 START_TEST(test_cache_find_absent)
 {
-    zseek_cache_t *cache = zseek_cache_new(2);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 2);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);
@@ -134,7 +163,11 @@ END_TEST
 
 START_TEST(test_cache_replace)
 {
-    zseek_cache_t *cache = zseek_cache_new(3);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 3);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frames[4];
     for (int i = 0; i < 4; i++) {
@@ -166,7 +199,11 @@ END_TEST
 
 START_TEST(test_cache_memory_usage)
 {
-    zseek_cache_t *cache = zseek_cache_new(1);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 1);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);
@@ -187,7 +224,11 @@ END_TEST
 
 START_TEST(test_cache_entries)
 {
-    zseek_cache_t *cache = zseek_cache_new(2);
+    zseek_mm_t _mm = { 0 };
+    zseek_mm_t *mm = &_mm;
+    init_mm(mm);
+
+    zseek_cache_t *cache = zseek_cache_new(mm, 2);
     ck_assert_msg(cache != NULL, "failed to create cache");
     zseek_frame_t frame = {.idx = 1, .len = 512};
     frame.data = malloc(frame.len);

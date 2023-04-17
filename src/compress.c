@@ -1,9 +1,6 @@
 #include <stdbool.h>    // bool
 #include <stddef.h>     // size_t
 #include <stdio.h>      // I/O
-#include <stdlib.h>     // malloc, free
-#include <errno.h>      // errno
-#include <string.h>     // memset
 #include <pthread.h>    // pthread_setaffinity_np
 #include <assert.h>     // assert
 
@@ -18,6 +15,7 @@
 
 struct zseek_writer {
     zseek_write_file_t user_file;
+    zseek_mm_t mm;
     zseek_compression_type_t type;
     union {
         struct {
@@ -50,8 +48,8 @@ static bool default_write(const void *data, size_t size, void *user_data,
 }
 
 static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
-	char errbuf[ZSEEK_ERRBUF_SIZE])
+	zseek_mm_t mm, zseek_compression_param_t* zsp, size_t min_frame_size,
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     (void)call_data;
 
@@ -62,13 +60,14 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
         strategy = zsp->params.zstd_params.strategy;
     }
 
-    zseek_writer_t *writer = malloc(sizeof(*writer));
+    zseek_writer_t *writer = mm.malloc(sizeof(*writer), true, mm.user_data);
     if (!writer) {
-        set_error_with_errno(errbuf, "allocate writer", errno);
+        // TODO OPT: Use errno if mm.malloc sets it
+        set_error(errbuf, "writer allocation failed");
         goto fail;
     }
-    memset(writer, 0, sizeof(*writer));
     writer->type = ZSEEK_ZSTD;
+    writer->mm = mm;
 
     ZSTD_CCtx *cctx = ZSTD_createCCtx();
     if (!cctx) {
@@ -141,7 +140,7 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
     }
     writer->cctx_zstd = cctx;
 
-    zseek_buffer_t *ubuf = zseek_buffer_new(min_frame_size);
+    zseek_buffer_t *ubuf = zseek_buffer_new(&writer->mm, min_frame_size);
     if (!ubuf) {
         set_error(errbuf, "input buffer creation failed");
         goto fail_w_cctx;
@@ -149,7 +148,7 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
     writer->ubuf = ubuf;
     writer->min_frame_size = min_frame_size;
 
-    ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(0);
+    ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(&writer->mm, 0);
     if (!fl) {
         set_error(errbuf, "framelog creation failed");
         goto fail_w_ubuf;
@@ -157,7 +156,7 @@ static zseek_writer_t *zseek_writer_open_full_zstd(zseek_write_file_t user_file,
     writer->fl = fl;
 
     size_t cbuf_len = ZSTD_compressBound(min_frame_size);
-    zseek_buffer_t *cbuf = zseek_buffer_new(cbuf_len);
+    zseek_buffer_t *cbuf = zseek_buffer_new(&writer->mm, cbuf_len);
     if (!cbuf) {
         set_error(errbuf, "buffer creation failed");
         goto fail_w_fl;
@@ -178,14 +177,14 @@ fail_w_cpuset:
 fail_w_cctx:
     ZSTD_freeCCtx(cctx);
 fail_w_writer:
-    free(writer);
+    mm.free(writer, mm.user_data);
 fail:
     return NULL;
 }
 
 static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
-	char errbuf[ZSEEK_ERRBUF_SIZE])
+	zseek_mm_t mm, zseek_compression_param_t* zsp, size_t min_frame_size,
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     (void)call_data;
 
@@ -193,20 +192,21 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
     if (zsp)
         compression_level = zsp->params.lz4_params.compression_level;
 
-    zseek_writer_t *writer = malloc(sizeof(*writer));
+    zseek_writer_t *writer = mm.malloc(sizeof(*writer), true, mm.user_data);
     if (!writer) {
-        set_error_with_errno(errbuf, "allocate writer", errno);
+        // TODO OPT: Use errno if mm.malloc sets it
+        set_error(errbuf, "writer allocation failed");
         goto fail;
     }
-    memset(writer, 0, sizeof(*writer));
     writer->type = ZSEEK_LZ4;
     writer->preferences.compressionLevel = compression_level;
     // Avoid unnecessary copies since we compress all at once anyway
     writer->preferences.autoFlush = 1;
     // Use smaller block sizes to reduce buffering
     writer->preferences.frameInfo.blockSizeID = LZ4F_max64KB;
+    writer->mm = mm;
 
-    zseek_buffer_t *ubuf = zseek_buffer_new(min_frame_size);
+    zseek_buffer_t *ubuf = zseek_buffer_new(&writer->mm, min_frame_size);
     if (!ubuf) {
         set_error(errbuf, "input buffer creation failed");
         goto fail_w_writer;
@@ -214,7 +214,7 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
     writer->ubuf = ubuf;
     writer->min_frame_size = min_frame_size;
 
-    ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(0);
+    ZSTD_frameLog *fl = ZSTD_seekable_createFrameLog(&writer->mm, 0);
     if (!fl) {
         set_error(errbuf, "framelog creation failed");
         goto fail_w_ubuf;
@@ -223,7 +223,7 @@ static zseek_writer_t *zseek_writer_open_full_lz4(zseek_write_file_t user_file,
 
     size_t cbuf_len = LZ4F_compressFrameBound(min_frame_size,
         &writer->preferences);
-    zseek_buffer_t *cbuf = zseek_buffer_new(cbuf_len);
+    zseek_buffer_t *cbuf = zseek_buffer_new(&writer->mm, cbuf_len);
     if (!cbuf) {
         set_error(errbuf, "output buffer creation failed");
         goto fail_w_fl;
@@ -239,27 +239,29 @@ fail_w_fl:
 fail_w_ubuf:
     zseek_buffer_free(ubuf);
 fail_w_writer:
-    free(writer);
+    mm.free(writer, mm.user_data);
 fail:
     return NULL;
 }
 
 zseek_writer_t *zseek_writer_open_full(zseek_write_file_t user_file,
-	zseek_compression_param_t* zsp, size_t min_frame_size, void *call_data,
-	char errbuf[ZSEEK_ERRBUF_SIZE])
+	zseek_mm_t mm, zseek_compression_param_t* zsp, size_t min_frame_size,
+    void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
+    init_mm(&mm);
+
     // TODO OPT: Don't hard-code the default (zstd)?
     if (!zsp) {
-        return zseek_writer_open_full_zstd(user_file, zsp, min_frame_size,
+        return zseek_writer_open_full_zstd(user_file, mm, zsp, min_frame_size,
             call_data, errbuf);
     }
 
     switch (zsp->type) {
     case ZSEEK_ZSTD:
-        return zseek_writer_open_full_zstd(user_file, zsp, min_frame_size,
+        return zseek_writer_open_full_zstd(user_file, mm, zsp, min_frame_size,
             call_data, errbuf);
     case ZSEEK_LZ4:
-        return zseek_writer_open_full_lz4(user_file, zsp, min_frame_size,
+        return zseek_writer_open_full_lz4(user_file, mm, zsp, min_frame_size,
             call_data, errbuf);
     default:
         set_error(errbuf, "wrong compression type (%d)", zsp->type);
@@ -271,7 +273,8 @@ zseek_writer_t *zseek_writer_open(FILE *cfile, zseek_compression_param_t *zsp,
     size_t min_frame_size, void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE])
 {
     zseek_write_file_t user_file = {cfile, default_write};
-    return zseek_writer_open_full(user_file, zsp, min_frame_size, call_data,
+    zseek_mm_t mm = { 0 };
+    return zseek_writer_open_full(user_file, mm, zsp, min_frame_size, call_data,
         errbuf);
 }
 
@@ -453,7 +456,8 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
         is_error = true;
     }
 
-    free(writer);
+    zseek_mm_t mm = writer->mm;
+    mm.free(writer, mm.user_data);
 
     return !is_error;
 }
@@ -572,7 +576,8 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
 
     zseek_buffer_free(writer->ubuf);
 
-    free(writer);
+    zseek_mm_t mm = writer->mm;
+    mm.free(writer, mm.user_data);
 
     return !is_error;
 }

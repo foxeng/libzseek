@@ -5,12 +5,14 @@
 #include <stdint.h>     // uint*_t
 #include <stdbool.h>    // bool
 
+#include "zseek.h"
+
 typedef struct zseek_buffer zseek_buffer_t;
 
 /**
  * Creates a new buffer with a capacity of at least @p capacity bytes.
  */
-zseek_buffer_t *zseek_buffer_new(size_t capacity);
+zseek_buffer_t *zseek_buffer_new(zseek_mm_t *mm, size_t capacity);
 
 /**
  * Frees the buffer pointed to by @p buffer.

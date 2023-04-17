@@ -10,7 +10,7 @@
 
 typedef struct ZSTD_frameLog_s ZSTD_frameLog;
 typedef struct ZSTD_seekTable_s ZSTD_seekTable;
-ZSTD_frameLog* ZSTD_seekable_createFrameLog(int checksumFlag);
+ZSTD_frameLog* ZSTD_seekable_createFrameLog(zseek_mm_t *mm, int checksumFlag);
 size_t ZSTD_seekable_freeFrameLog(ZSTD_frameLog* fl);
 size_t ZSTD_seekable_logFrame(ZSTD_frameLog* fl, unsigned compressedSize,
     unsigned decompressedSize, unsigned checksum);
@@ -20,7 +20,8 @@ size_t ZSTD_seekable_writeSeekTable(ZSTD_frameLog* fl, ZSTD_outBuffer* output);
  * Parse and return the seek table found in the last frame contained in @p fin,
  * or NULL on error.
  */
-ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data);
+ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, zseek_mm_t *mm,
+    void *call_data);
 /**
  * Free the seek table pointed to by @p st.
  */

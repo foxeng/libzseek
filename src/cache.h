@@ -4,6 +4,8 @@
 #include <stdbool.h>    // bool
 #include <stddef.h>     // size_t
 
+#include "zseek.h"
+
 typedef struct zseek_cache zseek_cache_t;
 
 typedef struct {
@@ -15,7 +17,7 @@ typedef struct {
 /**
  * Creates a new cache with a capacity of @p capacity frames.
  */
-zseek_cache_t *zseek_cache_new(size_t capacity);
+zseek_cache_t *zseek_cache_new(zseek_mm_t *mm, size_t capacity);
 /**
  * Frees the cache pointed to by @p cache.
  */
