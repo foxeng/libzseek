@@ -13,17 +13,16 @@ zseek_buffer_t *zseek_buffer_new(size_t capacity)
 {
     zseek_buffer_t *buffer = malloc(sizeof(*buffer));
     if (!buffer)
-        goto fail;
+        goto cleanup;
     memset(buffer, 0, sizeof(*buffer));
 
     if (!zseek_buffer_reserve(buffer, capacity))
-        goto fail_w_buffer;
+        goto cleanup;
 
     return buffer;
 
-fail_w_buffer:
+cleanup:
     free(buffer);
-fail:
     return NULL;
 }
 

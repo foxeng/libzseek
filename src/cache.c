@@ -136,10 +136,10 @@ bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame)
     // Insert to BST
     zseek_cached_frame_t *f = malloc(sizeof(*f));
     if (!f)
-        goto fail;
+        goto cleanup;
     f->frame = frame;
     if (!tsearch(f, &cache->root, compare))
-        goto fail_w_f;
+        goto cleanup;
 
     // Insert to list
     if (!cache->tail)
@@ -152,9 +152,8 @@ bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame)
 
     return true;
 
-fail_w_f:
+cleanup:
     free(f);
-fail:
     return false;
 }
 

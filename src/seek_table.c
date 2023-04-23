@@ -68,7 +68,7 @@ static bool read_st_entries(zseek_read_file_t user_file, size_t entries_off,
         (SEEKKTABLE_BUF_SIZE % entry_size);    // fit whole # of entries
     void *buf = malloc(buf_len);
     if (!buf)
-        goto fail;
+        goto cleanup;
 
     size_t c_offset = 0;
     size_t d_offset = 0;
@@ -80,7 +80,7 @@ static bool read_st_entries(zseek_read_file_t user_file, size_t entries_off,
             ssize_t _read = user_file.pread(buf, to_read, entries_off,
                 user_file.user_data, call_data);
             if (_read != (ssize_t)to_read)
-                goto fail_w_buf;
+                goto cleanup;
             entries_off += _read;
             buf_idx = 0;
         }
@@ -103,9 +103,8 @@ static bool read_st_entries(zseek_read_file_t user_file, size_t entries_off,
     free(buf);
     return true;
 
-fail_w_buf:
+cleanup:
     free(buf);
-fail:
     return false;
 }
 
@@ -113,25 +112,27 @@ ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data)
 {
     // TODO: Communicate error info?
 
+    seekEntry_t *entries = NULL;
+
     // Get file size
     ssize_t fsize = user_file.fsize(user_file.user_data, call_data);
     if (fsize < 0)
-        goto fail;
+        goto cleanup;
 
     // Read seek table footer
     uint8_t footer[ZSTD_seekTableFooterSize];
     ssize_t _read = user_file.pread(footer, ZSTD_seekTableFooterSize,
         fsize - ZSTD_seekTableFooterSize, user_file.user_data, call_data);
     if (_read != ZSTD_seekTableFooterSize)
-        goto fail;
+        goto cleanup;
     // Check Seekable_Magic_Number
     if (MEM_readLE32(footer + 5) != ZSTD_SEEKABLE_MAGICNUMBER)
-        goto fail;
+        goto cleanup;
     // Check Seek_Table_Descriptor
     uint8_t std = footer[4];
     if (std & 0x7c)
         // Some of the reserved bits are set
-        goto fail;
+        goto cleanup;
     bool checksum = std & 0x80;
     uint32_t num_frames = MEM_readLE32(footer);
 
@@ -144,34 +145,33 @@ ZSTD_seekTable *read_seek_table(zseek_read_file_t user_file, void *call_data)
     _read = user_file.pread(header, ZSTD_SKIPPABLEHEADERSIZE,
         fsize - seek_frame_size, user_file.user_data, call_data);
     if (_read != ZSTD_SKIPPABLEHEADERSIZE)
-        goto fail;
+        goto cleanup;
     // Check Skippable_Magic_Number
     if (MEM_readLE32(header) != SEEKTABLE_SKIPPABLE_MAGICNUMBER)
-        goto fail;
+        goto cleanup;
     // Check Frame_Size
     if (MEM_readLE32(header + 4) != seek_frame_size - ZSTD_SKIPPABLEHEADERSIZE)
-        goto fail;
+        goto cleanup;
 
     // Read seek table
-    seekEntry_t *entries = malloc((num_frames + 1) * sizeof(entries[0]));
+    entries = malloc((num_frames + 1) * sizeof(entries[0]));
     if (!entries)
-        goto fail;
+        goto cleanup;
     size_t entries_off = fsize - seek_frame_size + ZSTD_SKIPPABLEHEADERSIZE;
     if (!read_st_entries(user_file, entries_off, entries, num_frames, checksum,
         call_data))
-        goto fail_w_entries;
+        goto cleanup;
     ZSTD_seekTable *st = malloc(sizeof(*st));
     if (!st)
-        goto fail_w_entries;
+        goto cleanup;
     st->entries = entries;
     st->tableLen = num_frames;
     st->checksumFlag = (int)checksum;
 
     return st;
 
-fail_w_entries:
+cleanup:
     free(entries);
-fail:
     return NULL;
 }
 
