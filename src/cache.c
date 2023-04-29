@@ -1,88 +1,26 @@
 #include <stdlib.h>     // malloc, free
 #include <string.h>     // memset
+#include <assert.h>     // assert
 
-#include <search.h>     // insque, remque, tsearch
+#include "uthash.h"
 
 #include "cache.h"
 
-struct zseek_cached_frame {
-    struct zseek_cached_frame *next;
-    struct zseek_cached_frame *prev;
-
+typedef struct zseek_hm_item {
     zseek_frame_t frame;
-};
-typedef struct zseek_cached_frame zseek_cached_frame_t;
+    UT_hash_handle hh;
+} zseek_hm_item_t;
 
 struct zseek_cache {
     // TODO OPT: Lock independently from zseek_reader
 
-    // BST with nodes linking to the list below
-    void *root;
-
-    // Linked list containing the actual cache entries (head is LRU, tail is
-    // MRU)
-    zseek_cached_frame_t *head;
-    zseek_cached_frame_t *tail;
+    // HashMap doubling as insertion-order list
+    zseek_hm_item_t *map;
 
     size_t size;
     size_t capacity;
     size_t entries_memory;
 };
-
-static int compare(const void *pa, const void *pb)
-{
-    const zseek_cached_frame_t *a = pa;
-    const zseek_cached_frame_t *b = pb;
-
-    if (a->frame.idx < b->frame.idx)
-        return -1;
-    if (a->frame.idx > b->frame.idx)
-        return 1;
-    return 0;
-}
-
-static void free_node(void *nodep)
-{
-    // Free corresponding list element
-    zseek_cached_frame_t *f = nodep;
-    free(f->frame.data);
-    free(f);
-}
-
-static void evict_lru(zseek_cache_t *cache)
-{
-    // Remove from list
-    zseek_cached_frame_t *lru = cache->head;
-    if (!lru)
-        return;
-    if (cache->head == cache->tail) {
-        // Single item
-        cache->head = NULL;
-        cache->tail = NULL;
-    } else {
-        cache->head = cache->head->next;
-        remque(lru);
-    }
-
-    // Remove from BST
-    (void*)tdelete(lru, &cache->root, compare);
-
-    cache->size--;
-    cache->entries_memory -= lru->frame.len;
-
-    free(lru->frame.data);
-    free(lru);
-}
-
-static void make_mru(zseek_cache_t *cache, zseek_cached_frame_t *f)
-{
-    remque(f);
-
-    if (!cache->tail)
-        cache->head = f;
-    insque(f, cache->tail);
-    cache->tail = f;
-}
 
 zseek_cache_t *zseek_cache_new(size_t capacity)
 {
@@ -104,7 +42,13 @@ void zseek_cache_free(zseek_cache_t *cache)
     if (!cache)
         return;
 
-    tdestroy(cache->root, free_node);
+    zseek_hm_item_t *item;
+    zseek_hm_item_t *tmp;
+    HASH_ITER(hh, cache->map, item, tmp) {
+        HASH_DELETE(hh, cache->map, item);
+        free(item->frame.data);
+        free(item);
+    }
 
     free(cache);
 }
@@ -114,15 +58,18 @@ zseek_frame_t zseek_cache_find(zseek_cache_t *cache, size_t frame_idx)
     if (!cache)
         return (zseek_frame_t){NULL, 0, 0};
 
-    zseek_cached_frame_t key;
-    key.frame.idx = frame_idx;
-    zseek_cached_frame_t **found = tfind(&key, &cache->root, compare);
+    zseek_hm_item_t *found = NULL;
+    HASH_FIND(hh, cache->map, &frame_idx, sizeof(frame_idx), found);
     if (!found)
         return (zseek_frame_t){NULL, 0, 0};
 
-    make_mru(cache, *found);
+    // Re-insert, to make MRU
+    zseek_hm_item_t *replaced = NULL;
+    HASH_REPLACE(hh, cache->map, frame.idx, sizeof(cache->map->frame.idx),
+        found, replaced);
+    assert(replaced == found);
 
-    return (*found)->frame;
+    return found->frame;
 }
 
 bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame)
@@ -130,31 +77,33 @@ bool zseek_cache_insert(zseek_cache_t *cache, zseek_frame_t frame)
     if (!cache)
         return false;
 
-    if (cache->size == cache->capacity)
-        evict_lru(cache);
+    zseek_hm_item_t *existing = NULL;
+    HASH_FIND(hh, cache->map, &frame.idx, sizeof(frame.idx), existing);
+    if (existing)
+        return false;
 
-    // Insert to BST
-    zseek_cached_frame_t *f = malloc(sizeof(*f));
-    if (!f)
-        goto cleanup;
-    f->frame = frame;
-    if (!tsearch(f, &cache->root, compare))
-        goto cleanup;
+    zseek_hm_item_t *lru = NULL;
+    if (cache->size == cache->capacity) {
+        // Evict LRU (by definition the first in the HashMap, which is sorted
+        // by insertion order)
+        lru = cache->map;
+        HASH_DELETE(hh, cache->map, lru);
+        cache->size--;
+        cache->entries_memory -= lru->frame.len;
+        free(lru->frame.data);
+    }
 
-    // Insert to list
-    if (!cache->tail)
-        cache->head = f;
-    insque(f, cache->tail);
-    cache->tail = f;
+    // Insert to HashMap
+    zseek_hm_item_t *new = lru ? lru : malloc(sizeof(*new));
+    if (!new)
+        return false;
+    new->frame = frame;
+    HASH_ADD(hh, cache->map, frame.idx, sizeof(cache->map->frame.idx), new);
 
     cache->size++;
     cache->entries_memory += frame.len;
 
     return true;
-
-cleanup:
-    free(f);
-    return false;
 }
 
 size_t zseek_cache_memory_usage(const zseek_cache_t *cache)
@@ -162,7 +111,9 @@ size_t zseek_cache_memory_usage(const zseek_cache_t *cache)
     if (!cache)
         return 0;
 
-    return sizeof(*cache) + cache->size * sizeof(*(cache->head)) +
+    return sizeof(*cache) +
+        cache->size * sizeof(*(cache->map)) +
+        HASH_OVERHEAD(hh, cache->map) +
         cache->entries_memory;
 }
 
