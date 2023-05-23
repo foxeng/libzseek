@@ -4,6 +4,8 @@
 #include <stddef.h>     // size_t
 #include <sys/types.h>  // off_t
 
+#include <zstd.h>
+
 #include "zseek.h"
 
 typedef struct ZSTD_frameLog_s ZSTD_frameLog;
