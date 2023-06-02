@@ -307,6 +307,7 @@ static bool end_frame_zstd_mt(zseek_writer_t *writer, void *call_data)
         writer->frame_cm += buffout.pos;
 
         // Write output
+        // TODO: Switch between sync/async write(). Handle buffers.
         if (!writer->user_file.write(buffout.dst, buffout.pos,
             writer->user_file.user_data, call_data)) {
 
@@ -368,6 +369,7 @@ static bool end_frame_zstd(zseek_writer_t *writer, void *call_data)
     writer->frame_cm += cdata_len;
 
     // Write output
+    // TODO: Switch between sync/async write(). Handle buffers.
     if (!writer->user_file.write(cbuf_data, cdata_len,
         writer->user_file.user_data, call_data)) {
 
@@ -428,6 +430,7 @@ static bool zseek_writer_close_zstd(zseek_writer_t *writer,
             is_error = true;
         }
 
+        // TODO: Switch between sync/async write(). Handle buffers.
         bool written = writer->user_file.write(buffout.dst, buffout.pos,
             writer->user_file.user_data, call_data);
         if (!written && !is_error) {
@@ -493,6 +496,7 @@ static bool end_frame_lz4(zseek_writer_t *writer, void *call_data)
     writer->frame_cm += cdata_len;
 
     // Write output
+    // TODO: Switch between sync/async write(). Handle buffers.
     if (!writer->user_file.write(cbuf_data, cdata_len,
         writer->user_file.user_data, call_data)) {
 
@@ -553,6 +557,7 @@ static bool zseek_writer_close_lz4(zseek_writer_t *writer,
             is_error = true;
         }
 
+        // TODO: Switch between sync/async write(). Handle buffers.
         bool written = writer->user_file.write(buffout.dst, buffout.pos,
             writer->user_file.user_data, call_data);
         if (!written && !is_error) {
@@ -635,6 +640,7 @@ static bool zseek_write_zstd_mt(zseek_writer_t *writer, const void *buf,
         writer->frame_cm += buffout.pos;
 
         // Write output
+        // TODO: Switch between sync/async write(). Handle buffers.
         if (!writer->user_file.write(buffout.dst, buffout.pos,
                 writer->user_file.user_data, call_data)) {
             // TODO OPT: Use errno if user_file.write sets it
@@ -679,6 +685,7 @@ static bool compress_frame_zstd(zseek_writer_t *writer, const void *buf,
     writer->frame_cm += cdata_len;
 
     // Write output
+    // TODO: Switch between sync/async write(). Handle buffers.
     if (!writer->user_file.write(cbuf_data, cdata_len,
         writer->user_file.user_data, call_data)) {
 
@@ -764,6 +771,7 @@ static bool compress_frame_lz4(zseek_writer_t *writer, const void *buf,
     writer->frame_cm += cdata_len;
 
     // Write output
+    // TODO: Switch between sync/async write(). Handle buffers.
     if (!writer->user_file.write(cbuf_data, cdata_len,
         writer->user_file.user_data, call_data)) {
 
@@ -834,6 +842,16 @@ bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
         assert(false);
         return false;
     }
+}
+
+void zseek_async_write_complete(zseek_writer_t *writer, const void *data,
+    size_t size)
+{
+    (void)writer;
+    (void)size;
+
+    // TODO OPT: Reuse
+    free(data);
 }
 
 bool zseek_writer_stats(zseek_writer_t *writer, zseek_writer_stats_t *stats,

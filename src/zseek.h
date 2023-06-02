@@ -36,6 +36,14 @@
 #define ZSEEK_ERRBUF_SIZE 80
 
 /**
+ * Supported pluggable I/O types
+ */
+typedef enum {
+    ZSEEK_IO_SYNC = 0,
+    ZSEEK_IO_ASYNC,
+} zseek_io_type_t;
+
+/**
  * Pluggable write handler
  *
  * @param data
@@ -56,13 +64,40 @@ typedef bool (*zseek_write_t)(const void *data, size_t size, void *user_data,
     void *call_data);
 
 /**
+ * Pluggable async write handler
+ *
+ * @param data
+ *  The data to write to the file
+ * @param size
+ *  The size of @p data
+ * @param user_data
+ *  The user-specified file handle
+ * @param call_data
+ *  The user-specified per-call data
+ *
+ * @retval true
+ *  On success. @p size bytes from @p data submitted for writing to the file.
+ *  Note that actual write may still fail.
+ * @retval false
+ *  On error
+ */
+typedef bool (*zseek_async_write_t)(const void *data, size_t size,
+    void *user_data, void *call_data);
+
+/**
  * User-defined file supporting writes
  */
 typedef struct {
     /** File handle to use when calling below functions */
     void *user_data;
-    /** Write function */
-    zseek_write_t write;
+    /** I/O type */
+    zseek_io_type_t type;
+    union {
+        /** Write function */
+        zseek_write_t write;
+        /** Async write function */
+        zseek_async_write_t async_write;
+    };
 } zseek_write_file_t;
 
 /**
@@ -296,6 +331,19 @@ ZSEEK_EXPORT bool zseek_writer_close(zseek_writer_t *writer, void *call_data,
  */
 ZSEEK_EXPORT bool zseek_write(zseek_writer_t *writer, const void *buf, size_t len,
     void *call_data, char errbuf[ZSEEK_ERRBUF_SIZE]);
+
+/**
+ * Notifies of the completion of an async write
+ *
+ * @param writer
+ *	Compressed file write handle
+ * @param data
+ *	Pointer to data originally passed to @a async_write
+ * @param size
+ *  The size of @p data
+ */
+ZSEEK_EXPORT void zseek_async_write_complete(zseek_writer_t *writer,
+    const void *data, size_t size);
 
 /**
  * Returns currently available writer statistics
