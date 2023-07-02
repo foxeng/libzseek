@@ -16,6 +16,7 @@ m_dep = cc.find_library('m', required : false)
 
 libzseek = library('zseek',
     'src/buffer.c',
+    'src/buffer_pool.c',
     'src/cache.c',
     'src/common.c',
     'src/compress.c',
@@ -52,6 +53,13 @@ test_buffer = executable('test_buffer',
     dependencies: [check_dep],
     objects: [buffer_o])
 test('test_buffer', test_buffer)
+
+buffer_pool_o = libzseek.extract_objects('src/buffer_pool.c')
+test_buffer_pool = executable('test_buffer_pool',
+    'test/test_buffer_pool.c',
+    dependencies: [check_dep],
+    objects: [buffer_pool_o, buffer_o]) # TODO: Make buffer_pool_o depend automatically on buffer_o?
+test('test_buffer_pool', test_buffer_pool)
 
 
 install_headers('src/zseek.h')
